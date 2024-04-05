@@ -93,20 +93,26 @@ def run(
 
 def calc_ds(df):
     ds = []
+    lenght_of_past = 1
     for i in tqdm(range(df.i.max() - 1)):
-        current_df = df[df.i == i]
-        next_df = df[df.i == i + 1]
+        prev_10_rows = df.loc[(df.i > i - lenght_of_past) & (df.i <= i)]
 
-        states = np.concatenate([current_df['state_a'].values, current_df['state_b'].values])
-        nodes = np.concatenate([current_df['a'].values, current_df['b'].values])
-        concatenated_df = pd.DataFrame({'nodes': nodes, 'states': states}).drop_duplicates().sort_values(by='nodes')
-        x = concatenated_df.states.values[:, None]
+        states = np.concatenate([prev_10_rows['state_a'].values, prev_10_rows['state_b'].values])
+        nodes = np.concatenate([prev_10_rows['a'].values, prev_10_rows['b'].values])
+        times = np.concatenate([prev_10_rows['i'].values, prev_10_rows['i'].values])
+        concatenated_df = pd.DataFrame(
+            {'nodes': nodes, 'states': states, 'times': times}).drop_duplicates().sort_values(by='nodes')
+
+        b = concatenated_df.groupby('nodes').apply(
+            lambda g: g.drop_duplicates().sort_values('times').states.values).values
+        x = np.stack(b)
         x = torch.tensor(x, dtype=torch.float)
 
-        edges = np.stack([current_df['a'].values, current_df['b'].values], axis=1)
+        edges = np.stack([prev_10_rows['a'].values, prev_10_rows['b'].values], axis=1)
         edges = np.concatenate([edges, edges[:, ::-1]])
         edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
 
+        next_df = df[df.i == i + 1]
         states = np.concatenate([next_df['state_a'].values, next_df['state_b'].values])
         nodes = np.concatenate([next_df['a'].values, next_df['b'].values])
         concatenated_next_df = pd.DataFrame({'nodes': nodes, 'states': states}).drop_duplicates().sort_values(
@@ -196,7 +202,7 @@ if __name__ == '__main__':
                 {"train": train_loader, "test": test_loader},
                 loss_fn=F.binary_cross_entropy,
                 metric_fn=[recall_score, accuracy_score, f1_score, diversity],  # precision_score,
-                metric_name= ['recall','accuracy','f1','diversity_pred'],
+                metric_name=['recall', 'accuracy', 'f1', 'diversity_pred'],
                 print_steps=False
             )
 
