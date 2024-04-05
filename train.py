@@ -1,4 +1,5 @@
 import argparse
+import os
 
 import numpy as np
 import pandas as pd
@@ -92,11 +93,11 @@ def run(
     return curves['train'][-1], curves['test'][-1]
 
 
-def before_pad_array(lst, length_of_past,fill_value=2,):
+def before_pad_array(lst, length_of_past, fill_value=2, ):
     return np.concatenate([[fill_value] * (length_of_past - len(lst)), lst])
 
 
-def calc_ds(df, length_of_past=1):
+def calc_ds(df, length_of_past=1, use_pe=False, file_name='data_list.pt'):
     print('preparing data')
     ds = []
     for i in tqdm(range(df.i.max() - 1)):
@@ -111,7 +112,7 @@ def calc_ds(df, length_of_past=1):
         b = concatenated_df.groupby('nodes').apply(
             lambda g: g.drop_duplicates().sort_values('times').states.values)
 
-        b = b.apply(lambda lst: before_pad_array(lst, length_of_past,fill_value=0)).values
+        b = b.apply(lambda lst: before_pad_array(lst, length_of_past, fill_value=0)).values
 
         x = np.stack(b)
         x = torch.tensor(x, dtype=torch.float)
@@ -132,6 +133,7 @@ def calc_ds(df, length_of_past=1):
         data.validate(raise_on_error=True)
         ds.append(data)
     print('finished preparing data')
+    torch.save(ds, file_name)
     return ds
 
 
@@ -152,6 +154,7 @@ def get_args():
     parser.add_argument('--train_portion', type=float, default=0.8, help='Portion of data to use for training')
     parser.add_argument('--run_name', type=str, default='try', help='name in wandb')
     parser.add_argument('--length_of_past', type=int, default=10, help='How many past states to consider')
+    parser.add_argument('--use_pe', action='store_true', help='Wheter to use pe or not')
     args = parser.parse_args()
 
     if args.run_name == 'try':
@@ -172,6 +175,8 @@ if __name__ == '__main__':
     DEVICE = args.device
     TRAIN_PORTION = args.train_portion
     LENGTH_OF_PAST = args.length_of_past
+    USE_PE = args.use_pe
+
     IN_DIM = args.length_of_past
     DECAY_STEP = 0.1
     DECAY_RATE = 5
@@ -191,7 +196,13 @@ if __name__ == '__main__':
         # Initialize wandb
         wandb.init(project="StaticMPGoL", name=args.run_name + f'_{n}', config=vars(args))
 
-        ds = calc_ds(df, length_of_past=LENGTH_OF_PAST)
+        path = f'./data/{n}_past_{LENGTH_OF_PAST}_use_pe_{USE_PE}.pt'
+        if os.path.exists(path):
+            print('ds already exist - training starts')
+            ds = torch.load(path)
+        else:
+            print('ds doesnt exist:')
+            ds = calc_ds(df, length_of_past=LENGTH_OF_PAST, use_pe=USE_PE, file_name=path)
         train_size = int(len(ds) * TRAIN_PORTION)
         train_dataset = ds[:train_size]
         test_dataset = ds[train_size:]
@@ -205,7 +216,7 @@ if __name__ == '__main__':
                 in_dim=IN_DIM,
                 hidden_channels=HIDDEN_DIM,
                 out_dim=1,
-                num_layers= NUM_LAYERS
+                num_layers=NUM_LAYERS
             ).to(DEVICE)
 
             train_acc, test_acc = run(
