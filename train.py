@@ -1,15 +1,16 @@
 import argparse
-import wandb
+
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from sklearn.metrics import accuracy_score, recall_score, f1_score
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
+from tqdm import tqdm
 
+import wandb
 from architecture.models import GraphConvNet
 
 
@@ -91,11 +92,15 @@ def run(
     return curves['train'][-1], curves['test'][-1]
 
 
-def calc_ds(df):
+def before_pad_array(lst, length_of_past,fill_value=2,):
+    return np.concatenate([[fill_value] * (length_of_past - len(lst)), lst])
+
+
+def calc_ds(df, length_of_past=1):
+    print('preparing data')
     ds = []
-    lenght_of_past = 1
     for i in tqdm(range(df.i.max() - 1)):
-        prev_10_rows = df.loc[(df.i > i - lenght_of_past) & (df.i <= i)]
+        prev_10_rows = df.loc[(df.i > i - length_of_past) & (df.i <= i)]
 
         states = np.concatenate([prev_10_rows['state_a'].values, prev_10_rows['state_b'].values])
         nodes = np.concatenate([prev_10_rows['a'].values, prev_10_rows['b'].values])
@@ -104,7 +109,10 @@ def calc_ds(df):
             {'nodes': nodes, 'states': states, 'times': times}).drop_duplicates().sort_values(by='nodes')
 
         b = concatenated_df.groupby('nodes').apply(
-            lambda g: g.drop_duplicates().sort_values('times').states.values).values
+            lambda g: g.drop_duplicates().sort_values('times').states.values)
+
+        b = b.apply(lambda lst: before_pad_array(lst, length_of_past,fill_value=0)).values
+
         x = np.stack(b)
         x = torch.tensor(x, dtype=torch.float)
 
@@ -119,11 +127,11 @@ def calc_ds(df):
             by='nodes')
 
         y = torch.tensor(concatenated_next_df.states.values, dtype=torch.long)
-        # y1 = neighbors
 
-        data = Data(x=x, edge_index=edge_index, y=y)  # ,y1=y1)
+        data = Data(x=x, edge_index=edge_index, y=y)
         data.validate(raise_on_error=True)
         ds.append(data)
+    print('finished preparing data')
     return ds
 
 
@@ -135,16 +143,19 @@ def get_args():
     parser = argparse.ArgumentParser(description='Train a GCN model for the Game of Life')
     parser.add_argument('--batch_size', type=int, default=32, help='Input batch size for training')
     parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs to train for')
-    parser.add_argument('--hidden_dim', type=int, default=1, help='Dimension of the hidden layer')
-    parser.add_argument('--num_layers', type=int, default=1, help='Number of GCN layers')
-    parser.add_argument('--in_dim', type=int, default=1, help='Dimension of the input features')
+    parser.add_argument('--hidden_dim', type=int, default=200, help='Dimension of the hidden layer')
+    parser.add_argument('--num_layers', type=int, default=8, help='Number of GCN layers')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--seed', type=int, default=32, help='Random seed')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu',
                         help='Device to use for training')
     parser.add_argument('--train_portion', type=float, default=0.8, help='Portion of data to use for training')
     parser.add_argument('--run_name', type=str, default='try', help='name in wandb')
+    parser.add_argument('--length_of_past', type=int, default=10, help='How many past states to consider')
     args = parser.parse_args()
+
+    if args.run_name == 'try':
+        args.run_name = input("Please enter a run name: ")
     return args
 
 
@@ -156,12 +167,12 @@ if __name__ == '__main__':
     NUM_EPOCHS = args.num_epochs
     HIDDEN_DIM = args.hidden_dim
     NUM_LAYERS = args.num_layers
-    IN_DIM = args.in_dim
     LR = args.lr
     SEED = args.seed
     DEVICE = args.device
     TRAIN_PORTION = args.train_portion
-
+    LENGTH_OF_PAST = args.length_of_past
+    IN_DIM = args.length_of_past
     DECAY_STEP = 0.1
     DECAY_RATE = 5
 
@@ -180,7 +191,7 @@ if __name__ == '__main__':
         # Initialize wandb
         wandb.init(project="StaticMPGoL", name=args.run_name + f'_{n}', config=vars(args))
 
-        ds = calc_ds(df)
+        ds = calc_ds(df, length_of_past=LENGTH_OF_PAST)
         train_size = int(len(ds) * TRAIN_PORTION)
         train_dataset = ds[:train_size]
         test_dataset = ds[train_size:]
@@ -192,8 +203,9 @@ if __name__ == '__main__':
         for i in range(num_runs):
             gcn_model = GraphConvNet(
                 in_dim=IN_DIM,
-                hidden_channels=1,
-                out_dim=1
+                hidden_channels=HIDDEN_DIM,
+                out_dim=1,
+                num_layers= NUM_LAYERS
             ).to(DEVICE)
 
             train_acc, test_acc = run(

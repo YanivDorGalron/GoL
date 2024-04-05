@@ -18,10 +18,10 @@ class GCN(torch.nn.Module):
 
 
 class GraphConvNet(torch.nn.Module):
-    def __init__(self, in_dim, hidden_channels, out_dim):
+    def __init__(self, in_dim, hidden_channels, out_dim, num_layers):
         super().__init__()
-        self.conv1 = GraphConv(1,1)
-        self.linear_layer = MLP(1, 200, 1, num_layers=8)
+        self.conv1 = GraphConv(in_dim, in_dim)
+        self.linear_layer = MLP(in_dim, hidden_channels, out_dim, num_layers=num_layers)
 
     def forward(self, x, edge_index):
         x = self.conv1(x, edge_index)
