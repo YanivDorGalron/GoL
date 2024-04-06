@@ -1,5 +1,6 @@
 import argparse
 import os
+import pdb
 
 import numpy as np
 import pandas as pd
@@ -29,7 +30,13 @@ def get_args():
     parser.add_argument('--train_portion', type=float, default=0.8, help='Portion of data to use for training')
     parser.add_argument('--run_name', type=str, default='try', help='name in wandb')
     parser.add_argument('--length_of_past', type=int, default=10, help='How many past states to consider')
-    parser.add_argument('--use_pe', action='store_true', help='Wheter to use pe or not')
+    parser.add_argument('--use_pe', action='store_true', help='Whether to use pe or not')
+    parser.add_argument('--history_for_pe', type=int, default=10,
+                        help='number of timestamps to take for calculating the pe')
+    parser.add_argument('--number_of_eigenvectors', type=int, default=20,
+                        help='number of eigen vector to use for the pe')
+    parser.add_argument('--offset', type=int, default=0, help='the offset in time for taking information')
+
     args = parser.parse_args()
 
     # if args.run_name == 'try':
@@ -119,18 +126,32 @@ def before_pad_array(lst, length_of_past, fill_value=2, ):
     return np.concatenate([[fill_value] * (length_of_past - len(lst)), lst])
 
 
-def calc_ds(df, length_of_past=1, use_pe=False, file_name='data_list.pt', history_for_pe=10, number_of_eigenvectors=20):
+def calc_ds(df, length_of_past=1, use_pe=False, history_for_pe=10, number_of_eigenvectors=20,
+            offset=0):
+    if use_pe:
+        file_name = (f'./data/{n}_past_{LENGTH_OF_PAST}_use_pe_{USE_PE}_history_for_pe_{history_for_pe}'
+                     f'_number_of_eigenvectors_{number_of_eigenvectors}_offset_{offset}.pt')
+    else:
+        file_name = f'./data/{n}_past_{LENGTH_OF_PAST}_use_pe_{USE_PE}_offset_{offset}.pt'
+
+    if os.path.exists(file_name):
+        print('ds already exist - training starts')
+        ds = torch.load(file_name)
+        return ds
+    else:
+        print('ds doesnt exist:')
+
     print('preparing data')
     ds = []
-    for i in tqdm(range(df.i.max() - 1)):
-        prev_10_ts = df.loc[(df.i > i - length_of_past) & (df.i <= i)]
+    eigenvectors = None
+    for i in tqdm(range(offset, df.i.max() - 1)):
+        prev_10_ts = df.loc[(df.i > i - length_of_past - offset) & (df.i <= i - offset)]
         if use_pe:
-            if history_for_pe == length_of_past:
-                partial_df = prev_10_ts
-            else:
-                partial_df = df.loc[(df.i > i - history_for_pe) & (df.i <= i)]
+            # todo: also off set for pe?
+            partial_df = df.loc[(df.i > i - history_for_pe) & (df.i <= i)]
             graphs = create_graphs_from_df(partial_df)
             unified_graph = create_unified_graph(graphs)
+            pdb.set_trace()
             eigenvectors, eigenvalues = get_efficient_eigenvectors(unified_graph, number_of_eigenvectors)
 
         states = np.concatenate([prev_10_ts['state_a'].values, prev_10_ts['state_b'].values])
@@ -146,7 +167,7 @@ def calc_ds(df, length_of_past=1, use_pe=False, file_name='data_list.pt', histor
 
         x = np.stack(b)
         if use_pe:
-            x = np.concatenate([x, eigenvectors], axis=1)
+            x = np.concatenate([x, eigenvectors[-x.shape[0]:]], axis=1)
         x = torch.tensor(x, dtype=torch.float)
 
         edges = np.stack([prev_10_ts['a'].values, prev_10_ts['b'].values], axis=1)
@@ -186,8 +207,10 @@ if __name__ == '__main__':
     DEVICE = args.device
     TRAIN_PORTION = args.train_portion
     LENGTH_OF_PAST = args.length_of_past
-    USE_PE = True  # args.use_pe
-    # START_STATES = args.start_states
+    USE_PE = args.use_pe
+    HISTORY_FOR_PE = args.history_for_pe
+    NUMBER_OF_EIGENVECTORS = args.number_of_eigenvectors
+    OFFSET = args.offset
 
     IN_DIM = args.length_of_past
     DECAY_STEP = 0.1
@@ -208,14 +231,10 @@ if __name__ == '__main__':
         # Initialize wandb
         wandb.init(project="StaticMPGoL", name=args.run_name + f'_{n}', config=vars(args))
 
-        path = f'./data/{n}_past_{LENGTH_OF_PAST}_use_pe_{USE_PE}.pt'
-        if os.path.exists(path):
-            print('ds already exist - training starts')
-            ds = torch.load(path)
-        else:
-            print('ds doesnt exist:')
-            ds = calc_ds(df, length_of_past=LENGTH_OF_PAST, use_pe=USE_PE,
-                         file_name=path)  # ,start_states=START_STATES)
+        ds = calc_ds(df, length_of_past=LENGTH_OF_PAST, use_pe=USE_PE, history_for_pe=HISTORY_FOR_PE,
+                     number_of_eigenvectors=NUMBER_OF_EIGENVECTORS,
+                     offset=OFFSET)
+
         train_size = int(len(ds) * TRAIN_PORTION)
         train_dataset = ds[:train_size]
         test_dataset = ds[train_size:]
