@@ -94,11 +94,10 @@ def run(
     # Instantiate optimiser and scheduler
     optimiser = optim.Adam(model.parameters(), lr=LR)
     scheduler = (
-        optim.lr_scheduler.StepLR(optimiser, step_size=DECAY_STEP, gamma=DECAY_RATE)
+        optim.lr_scheduler.StepLR(optimiser, step_size=STEP_SIZE, gamma=GAMMA)
         if use_scheduler
         else None
     )
-    scheduler = None
     curves = {name: [] for name in loaders.keys()}
     for epoch in tqdm(range(NUM_EPOCHS)):
         train_loss = train(
@@ -127,17 +126,17 @@ def before_pad_array(lst, length_of_past, fill_value=2, ):
 
 
 def calc_ds(df, length_of_past=1, use_pe=False, history_for_pe=10, number_of_eigenvectors=20,
-            offset=0):
+            offset=0,n=''):
     if use_pe:
-        file_name = (f'./data/{n}_past_{LENGTH_OF_PAST}_use_pe_{USE_PE}_history_for_pe_{history_for_pe}'
+        file_name = (f'./data/{n}_past_{length_of_past}_use_pe_{use_pe}_history_for_pe_{history_for_pe}'
                      f'_number_of_eigenvectors_{number_of_eigenvectors}_offset_{offset}.pt')
     else:
-        file_name = f'./data/{n}_past_{LENGTH_OF_PAST}_use_pe_{USE_PE}_offset_{offset}.pt'
+        file_name = f'./data/{n}_past_{length_of_past}_use_pe_{use_pe}_offset_{offset}.pt'
 
     if os.path.exists(file_name):
         print('ds already exist - training starts')
         ds = torch.load(file_name)
-        return ds
+        return ds, file_name
     else:
         print('ds doesnt exist:')
 
@@ -151,7 +150,6 @@ def calc_ds(df, length_of_past=1, use_pe=False, history_for_pe=10, number_of_eig
             partial_df = df.loc[(df.i > i - history_for_pe) & (df.i <= i)]
             graphs = create_graphs_from_df(partial_df)
             unified_graph = create_unified_graph(graphs)
-            pdb.set_trace()
             eigenvectors, eigenvalues = get_efficient_eigenvectors(unified_graph, number_of_eigenvectors)
 
         states = np.concatenate([prev_10_ts['state_a'].values, prev_10_ts['state_b'].values])
@@ -187,7 +185,7 @@ def calc_ds(df, length_of_past=1, use_pe=False, history_for_pe=10, number_of_eig
         ds.append(data)
     print('finished preparing data')
     torch.save(ds, file_name)
-    return ds
+    return ds, file_name
 
 
 def diversity(y_true, y_pred):
@@ -197,7 +195,6 @@ def diversity(y_true, y_pred):
 if __name__ == '__main__':
     args = get_args()
 
-    # Update the corresponding variables with the parsed arguments
     BATCH_SIZE = args.batch_size
     NUM_EPOCHS = args.num_epochs
     HIDDEN_DIM = args.hidden_dim
@@ -209,13 +206,11 @@ if __name__ == '__main__':
     LENGTH_OF_PAST = args.length_of_past
     USE_PE = args.use_pe
     HISTORY_FOR_PE = args.history_for_pe
-    NUMBER_OF_EIGENVECTORS = args.number_of_eigenvectors
+    NUMBER_OF_EIGENVECTORS = args.number_of_eigenvectors if args.use_pe else 0
     OFFSET = args.offset
-
-    IN_DIM = args.length_of_past
-    DECAY_STEP = 0.1
-    DECAY_RATE = 5
-
+    IN_DIM = args.length_of_past + NUMBER_OF_EIGENVECTORS
+    STEP_SIZE = 5
+    GAMMA = 0.9
     torch.manual_seed(SEED)
     np.random.seed(SEED)
 
@@ -228,12 +223,11 @@ if __name__ == '__main__':
     num_runs = 1
 
     for n, df in zip(name[1:], df_list[1:]):
-        # Initialize wandb
         wandb.init(project="StaticMPGoL", name=args.run_name + f'_{n}', config=vars(args))
 
-        ds = calc_ds(df, length_of_past=LENGTH_OF_PAST, use_pe=USE_PE, history_for_pe=HISTORY_FOR_PE,
-                     number_of_eigenvectors=NUMBER_OF_EIGENVECTORS,
-                     offset=OFFSET)
+        ds, f_name = calc_ds(df, length_of_past=LENGTH_OF_PAST,
+                                use_pe=USE_PE, history_for_pe=HISTORY_FOR_PE,n=n,
+                                number_of_eigenvectors=NUMBER_OF_EIGENVECTORS, offset=OFFSET)
 
         train_size = int(len(ds) * TRAIN_PORTION)
         train_dataset = ds[:train_size]
@@ -243,28 +237,25 @@ if __name__ == '__main__':
         test_loader = DataLoader(test_dataset, 5 * BATCH_SIZE, shuffle=False)
         train_acc_list = []
         test_acc_list = []
+        model = GraphConvNet(
+            in_dim=IN_DIM,
+            hidden_channels=HIDDEN_DIM,
+            out_dim=1,
+            num_layers=NUM_LAYERS
+        ).to(DEVICE)
         for i in range(num_runs):
-            gcn_model = GraphConvNet(
-                in_dim=IN_DIM,
-                hidden_channels=HIDDEN_DIM,
-                out_dim=1,
-                num_layers=NUM_LAYERS
-            ).to(DEVICE)
-
             train_acc, test_acc = run(
-                gcn_model,
+                model,
                 train_loader,
                 {"train": train_loader, "test": test_loader},
                 loss_fn=F.binary_cross_entropy,
                 metric_fn=[recall_score, precision_score, accuracy_score, f1_score, diversity],  # precision_score,
                 metric_name=['recall', 'precision', 'accuracy', 'f1', 'diversity_pred'],
-                print_steps=False
+                print_steps=False,
+                use_scheduler=True
             )
-
             train_acc_list.append(train_acc)
             test_acc_list.append(test_acc)
-        print(n)
-        print('[recall,accuracy,f1,diversity_pred]')  # precision,
-        print('train:', train_acc_list)
-        print('test:', test_acc_list)
+        print('saving_checkpoint')
+        torch.save({'model_state_dict': model.state_dict()}, f'./checkpoints/{args.run_name}_{n}')
         wandb.finish()

@@ -2,8 +2,6 @@ import random
 import warnings
 
 import networkx as nx
-import numpy as np
-import pandas as pd
 import plotly.graph_objects as go
 import plotly.graph_objs as go
 from sklearn.neighbors import NearestNeighbors
@@ -11,10 +9,11 @@ from tnetwork import ComScenario
 from tnetwork.experiments.experiments import *
 from tqdm.notebook import tqdm
 
-warnings.simplefilter(action='ignore', category=FutureWarning)
 from scipy.sparse.linalg import eigsh
 from collections import defaultdict
 from itertools import product
+
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 colors_dict = {'blue': 0,
                'red': 1,
@@ -77,7 +76,7 @@ def draw_cloud(G, points, color=None, fig=None, draw_edges=True, sz=1, width=100
         name = ''
 
     node_trace = go.Scatter3d(
-        x=x,y=y,z=z,
+        x=x, y=y, z=z,
         mode='markers',
         marker=dict(size=sz, color=color),
         name=name
@@ -98,7 +97,7 @@ def draw_cloud(G, points, color=None, fig=None, draw_edges=True, sz=1, width=100
 
         # Create trace for edges
         edge_trace = go.Scatter3d(
-            x=edge_x,y=edge_y,z=edge_z,
+            x=edge_x, y=edge_y, z=edge_z,
             mode='lines',
             line=dict(color='gray', width=1)
         )
@@ -126,7 +125,7 @@ def draw_cloud(G, points, color=None, fig=None, draw_edges=True, sz=1, width=100
             center=dict(x=0, y=0, z=0)  # Set the center of rotation
         )
     ), width=width, height=height, margin=dict(
-        l=5,r=5,b=10,t=10,pad=4
+        l=5, r=5, b=10, t=10, pad=4
     ))
     return fig
 

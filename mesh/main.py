@@ -2,7 +2,7 @@ import random
 
 import numpy as np
 from plotly_gif import GIF
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 from utils import create_graph_from_clouds, draw_cloud, update_communities, update_grid, dict_colors, \
     transfer_att_from_graph, create_edge_df, get_V_F_of_obj, create_grid
