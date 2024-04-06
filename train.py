@@ -13,7 +13,7 @@ from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
 import wandb
-from architecture.models import GraphConvNet
+from architecture.models import GraphConvNet, ModifiedGraphConvNet,GINNet,GATNet
 from mesh.utils import create_graphs_from_df, create_unified_graph, get_efficient_eigenvectors
 
 
@@ -237,7 +237,7 @@ if __name__ == '__main__':
         test_loader = DataLoader(test_dataset, 5 * BATCH_SIZE, shuffle=False)
         train_acc_list = []
         test_acc_list = []
-        model = GraphConvNet(
+        model = GINNet(
             in_dim=IN_DIM,
             hidden_channels=HIDDEN_DIM,
             out_dim=1,
