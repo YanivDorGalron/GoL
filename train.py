@@ -1,6 +1,7 @@
 import argparse
 import os
 import pdb
+import random
 
 import numpy as np
 import pandas as pd
@@ -15,6 +16,7 @@ from tqdm import tqdm
 import wandb
 from architecture.models import GraphConvNet, ModifiedGraphConvNet,GINNet,GATNet
 from mesh.utils import create_graphs_from_df, create_unified_graph, get_efficient_eigenvectors
+from utils import count_consecutive_ones_from_end, concat_multiple_times
 
 
 def get_args():
@@ -164,6 +166,10 @@ def calc_ds(df, length_of_past=1, use_pe=False, history_for_pe=10, number_of_eig
         b = b.apply(lambda lst: before_pad_array(lst, length_of_past, fill_value=0)).values
 
         x = np.stack(b)
+        # location_of_phenomena = np.apply_along_axis(count_consecutive_ones_from_end, 1, b) >= 3
+        # minority_b = b[location_of_phenomena]
+        # print(minority_b.shape)
+        # x = concat_multiple_times(b, minority_b, times=4)
         if use_pe:
             x = np.concatenate([x, eigenvectors[-x.shape[0]:]], axis=1)
         x = torch.tensor(x, dtype=torch.float)
@@ -178,7 +184,11 @@ def calc_ds(df, length_of_past=1, use_pe=False, history_for_pe=10, number_of_eig
         concatenated_next_df = pd.DataFrame({'nodes': nodes, 'states': states}).drop_duplicates().sort_values(
             by='nodes')
 
-        y = torch.tensor(concatenated_next_df.states.values, dtype=torch.long)
+        y_values = concatenated_next_df.states.values
+        # orig_values = concatenated_next_df.states.values
+        # minority_values = orig_values[location_of_phenomena]
+        # y_values = concat_multiple_times(orig_values, minority_values, times=4)
+        y = torch.tensor(y_values, dtype=torch.long)
 
         data = Data(x=x, edge_index=edge_index, y=y)
         data.validate(raise_on_error=True)
@@ -222,22 +232,23 @@ if __name__ == '__main__':
     name = ['regulardf', 'temporaldf', 'oscilationdf', 'PD_df']
     num_runs = 1
 
-    for n, df in zip(name[1:], df_list[1:]):
+    for n, df in zip(name[:1], df_list[:1]):
         wandb.init(project="StaticMPGoL", name=args.run_name + f'_{n}', config=vars(args))
 
         ds, f_name = calc_ds(df, length_of_past=LENGTH_OF_PAST,
                                 use_pe=USE_PE, history_for_pe=HISTORY_FOR_PE,n=n,
                                 number_of_eigenvectors=NUMBER_OF_EIGENVECTORS, offset=OFFSET)
 
+        random.shuffle(ds)
         train_size = int(len(ds) * TRAIN_PORTION)
         train_dataset = ds[:train_size]
         test_dataset = ds[train_size:]
 
-        train_loader = DataLoader(train_dataset, 5 * BATCH_SIZE, shuffle=False)
-        test_loader = DataLoader(test_dataset, 5 * BATCH_SIZE, shuffle=False)
+        train_loader = DataLoader(train_dataset, 5 * BATCH_SIZE, shuffle=True)
+        test_loader = DataLoader(test_dataset, 5 * BATCH_SIZE, shuffle=True)
         train_acc_list = []
         test_acc_list = []
-        model = GINNet(
+        model = GraphConvNet(
             in_dim=IN_DIM,
             hidden_channels=HIDDEN_DIM,
             out_dim=1,
