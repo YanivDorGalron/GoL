@@ -14,7 +14,7 @@ from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
 import wandb
-from architecture.models import GraphConvNet, ModifiedGraphConvNet,GINNet,GATNet
+from architecture.models import GraphConvNet, ModifiedGraphConvNet, GINNet, GATNet, DeepGraphConvNet
 from mesh.utils import create_graphs_from_df, create_unified_graph, get_efficient_eigenvectors
 from utils import count_consecutive_ones_from_end, concat_multiple_times
 
@@ -128,7 +128,7 @@ def before_pad_array(lst, length_of_past, fill_value=2, ):
 
 
 def calc_ds(df, length_of_past=1, use_pe=False, history_for_pe=10, number_of_eigenvectors=20,
-            offset=0,n=''):
+            offset=0, n=''):
     if use_pe:
         file_name = (f'./data/{n}_past_{length_of_past}_use_pe_{use_pe}_history_for_pe_{history_for_pe}'
                      f'_number_of_eigenvectors_{number_of_eigenvectors}_offset_{offset}.pt')
@@ -236,8 +236,8 @@ if __name__ == '__main__':
         wandb.init(project="StaticMPGoL", name=args.run_name + f'_{n}', config=vars(args))
 
         ds, f_name = calc_ds(df, length_of_past=LENGTH_OF_PAST,
-                                use_pe=USE_PE, history_for_pe=HISTORY_FOR_PE,n=n,
-                                number_of_eigenvectors=NUMBER_OF_EIGENVECTORS, offset=OFFSET)
+                             use_pe=USE_PE, history_for_pe=HISTORY_FOR_PE, n=n,
+                             number_of_eigenvectors=NUMBER_OF_EIGENVECTORS, offset=OFFSET)
 
         random.shuffle(ds)
         train_size = int(len(ds) * TRAIN_PORTION)
@@ -248,12 +248,12 @@ if __name__ == '__main__':
         test_loader = DataLoader(test_dataset, 5 * BATCH_SIZE, shuffle=True)
         train_acc_list = []
         test_acc_list = []
-        model = GraphConvNet(
+        model = DeepGraphConvNet(
             in_dim=IN_DIM,
             hidden_channels=HIDDEN_DIM,
             out_dim=1,
-            num_layers=NUM_LAYERS
-        ).to(DEVICE)
+            num_layers=NUM_LAYERS,
+            num_conv_layers=3).to(DEVICE)
         for i in range(num_runs):
             train_acc, test_acc = run(
                 model,

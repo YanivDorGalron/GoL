@@ -1,6 +1,7 @@
 import pdb
 
 import torch
+from torch import nn
 from torch_geometric.nn import GraphConv, GATConv, GINConv
 
 from architecture.mlp import MLP
@@ -27,6 +28,22 @@ class GraphConvNet(torch.nn.Module):
 
     def forward(self, x, edge_index):
         x = self.conv1(x, edge_index)
+        x = self.linear_layer(x).sigmoid()
+        return x
+
+
+class DeepGraphConvNet(torch.nn.Module):
+    def __init__(self, in_dim, hidden_channels, out_dim, num_layers, num_conv_layers):
+        super().__init__()
+        self.convs = nn.Sequential(
+            GraphConv(in_dim, hidden_channels),
+            *[GraphConv(hidden_channels, hidden_channels) for _ in range(num_conv_layers - 1)]
+        )
+        self.linear_layer = MLP(hidden_channels, hidden_channels, out_dim, num_layers=num_layers)
+
+    def forward(self, x, edge_index):
+        for conv in self.convs:
+            x = conv(x, edge_index)
         x = self.linear_layer(x).sigmoid()
         return x
 
