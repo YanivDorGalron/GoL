@@ -31,7 +31,8 @@ def get_args():
                         help='Device to use for training')
     parser.add_argument('--train_portion', type=float, default=0.8, help='Portion of data to use for training')
     parser.add_argument('--run_name', type=str, default='try', help='name in wandb')
-    parser.add_argument('--length_of_past', type=int, default=10, help='How many past states to consider')
+    parser.add_argument('--length_of_past', type=int, default=10,
+                        help='How many past states to consider as node features')
     parser.add_argument('--use_pe', action='store_true', help='Whether to use pe or not')
     parser.add_argument('--history_for_pe', type=int, default=10,
                         help='number of timestamps to take for calculating the pe')
@@ -40,8 +41,11 @@ def get_args():
     parser.add_argument('--offset', type=int, default=0, help='the offset in time for taking information')
     parser.add_argument('--num_conv_layers', type=int, default=1, help='number of conv layers')
     parser.add_argument('--conv_hidden_dim', type=int, default=1, help='conv layers hidden dimension')
-    parser.add_argument('--dont_use_scheduler', action='store_true', help='whether to use sched')
+    parser.add_argument('--dont_use_scheduler', action='store_true', help='whether to use scheduler')
     parser.add_argument('--weight_decay', type=float, default=0.0, help='weight decay for adam optimizer')
+    parser.add_argument('--data_name', type=str,
+                        choices=['Regular', 'Temporal', 'Oscilations', 'PastDependent'],
+                        help='path to dataset')
 
     args = parser.parse_args()
 
@@ -170,10 +174,6 @@ def calc_ds(df, length_of_past=1, use_pe=False, history_for_pe=10, number_of_eig
         b = b.apply(lambda lst: before_pad_array(lst, length_of_past, fill_value=0)).values
 
         x = np.stack(b)
-        # location_of_phenomena = np.apply_along_axis(count_consecutive_ones_from_end, 1, b) >= 3
-        # minority_b = b[location_of_phenomena]
-        # print(minority_b.shape)
-        # x = concat_multiple_times(b, minority_b, times=4)
         if use_pe:
             x = np.concatenate([x, eigenvectors[-x.shape[0]:]], axis=1)
         x = torch.tensor(x, dtype=torch.float)
@@ -189,9 +189,6 @@ def calc_ds(df, length_of_past=1, use_pe=False, history_for_pe=10, number_of_eig
             by='nodes')
 
         y_values = concatenated_next_df.states.values
-        # orig_values = concatenated_next_df.states.values
-        # minority_values = orig_values[location_of_phenomena]
-        # y_values = concat_multiple_times(orig_values, minority_values, times=4)
         y = torch.tensor(y_values, dtype=torch.long)
 
         data = Data(x=x, edge_index=edge_index, y=y)
@@ -208,76 +205,44 @@ def diversity(y_true, y_pred):
 
 if __name__ == '__main__':
     args = get_args()
-
-    BATCH_SIZE = args.batch_size
-    NUM_EPOCHS = args.num_epochs
-    HIDDEN_DIM = args.hidden_dim
-    NUM_LAYERS = args.num_layers
-    LR = args.lr
-    SEED = args.seed
-    DEVICE = args.device
-    TRAIN_PORTION = args.train_portion
-    LENGTH_OF_PAST = args.length_of_past
-    args.use_pe = True
-    USE_PE = args.use_pe
-    HISTORY_FOR_PE = args.history_for_pe
-    NUM_CONV_LAYERS = args.num_conv_layers
     NUMBER_OF_EIGENVECTORS = args.number_of_eigenvectors if args.use_pe else 0
-    OFFSET = args.offset
-    CONV_HIDDEN_DIM = args.conv_hidden_dim
     IN_DIM = args.length_of_past + NUMBER_OF_EIGENVECTORS
     USE_SCHEDULER = not args.dont_use_scheduler
-    WEIGHT_DECAY = args.weight_decay
     STEP_SIZE = 5
     GAMMA = 0.9
-    torch.manual_seed(SEED)
-    np.random.seed(SEED)
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
 
-    regulardf = pd.read_csv('../../notebooks/saved/data/RegularGoL.csv')
-    temporaldf = pd.read_csv('../../notebooks/saved/data/TemporalGoL.csv')
-    oscilationdf = pd.read_csv('../../notebooks/saved/data/OscilationsGoL.csv')
-    PD_df = pd.read_csv('../../notebooks/saved/data/PastDependentGoL.csv')
-    df_list = [regulardf, temporaldf, oscilationdf, PD_df]
-    name = ['regulardf', 'temporaldf', 'oscilationdf', 'PD_df']
-    num_runs = 1
+    df = pd.read_csv(f'/raid/home/ygalron/big-storage/notebooks/saved/data/{args.data_name}GoL.csv')
+    wandb.init(project="StaticMPGoL", name=args.run_name + f'_{args.data_name}', config=vars(args))
 
-    for n, df in zip(name[1:], df_list[1:]):
-        wandb.init(project="StaticMPGoL", name=args.run_name + f'_{n}', config=vars(args))
+    ds, f_name = calc_ds(df, length_of_past=args.length_of_past,
+                         use_pe=args.use_pe, history_for_pe=args.history_for_pe, n=args.data_name,
+                         number_of_eigenvectors=NUMBER_OF_EIGENVECTORS, offset=args.offset)
 
-        ds, f_name = calc_ds(df, length_of_past=LENGTH_OF_PAST,
-                             use_pe=USE_PE, history_for_pe=HISTORY_FOR_PE, n=n,
-                             number_of_eigenvectors=NUMBER_OF_EIGENVECTORS, offset=OFFSET)
+    random.shuffle(ds)
+    train_size = int(len(ds) * args.train_portion)
+    train_dataset = ds[:train_size]
+    test_dataset = ds[train_size:]
 
-        random.shuffle(ds)
-        train_size = int(len(ds) * TRAIN_PORTION)
-        train_dataset = ds[:train_size]
-        test_dataset = ds[train_size:]
-
-        train_loader = DataLoader(train_dataset, 5 * BATCH_SIZE, shuffle=True)
-        test_loader = DataLoader(test_dataset, 5 * BATCH_SIZE, shuffle=True)
-        train_acc_list = []
-        test_acc_list = []
-        model = DeepGraphConvNet(
-            in_dim=IN_DIM,
-            hidden_channels=HIDDEN_DIM,
-            conv_hidden_dim=CONV_HIDDEN_DIM,
-            out_dim=1,
-            num_layers=NUM_LAYERS,
-            num_conv_layers=NUM_CONV_LAYERS).to(DEVICE)
-        for i in range(num_runs):
-            train_acc, test_acc = run(
-                model,
-                train_loader,
-                {"train": train_loader, "test": test_loader},
-                loss_fn=F.binary_cross_entropy,
-                metric_fn=[recall_score, precision_score, accuracy_score, f1_score, diversity],  # precision_score,
-                metric_name=['recall', 'precision', 'accuracy', 'f1', 'diversity_pred'],
-                print_steps=False,
-                use_scheduler=USE_SCHEDULER,
-                weight_decay=WEIGHT_DECAY
-            )
-            train_acc_list.append(train_acc)
-            test_acc_list.append(test_acc)
-        print('saving_checkpoint')
-        torch.save({'model_state_dict': model.state_dict()}, f'./checkpoints/{args.run_name}_{n}')
-        wandb.finish()
+    train_loader = DataLoader(train_dataset, 5 * args.batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, 5 * args.batch_size, shuffle=True)
+    model = DeepGraphConvNet(
+        in_dim=IN_DIM,
+        hidden_channels=args.hidden_dim,
+        conv_hidden_dim=args.conv_hidden_dim,
+        out_dim=1,
+        num_layers=args.num_layers,
+        num_conv_layers=args.num_conv_layers).to(args.device)
+    run(model, train_loader,
+        {"train": train_loader, "test": test_loader},
+        loss_fn=F.binary_cross_entropy,
+        metric_fn=[recall_score, precision_score, accuracy_score, f1_score, diversity],
+        metric_name=['recall', 'precision', 'accuracy', 'f1', 'diversity_pred'],
+        print_steps=False,
+        use_scheduler=USE_SCHEDULER,
+        weight_decay=args.weight_decay
+        )
+    print('saving_checkpoint')
+    torch.save({'model_state_dict': model.state_dict()}, f'./checkpoints/{args.run_name}_{args.data_name}.pt')
+    wandb.finish()
