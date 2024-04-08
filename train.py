@@ -38,6 +38,10 @@ def get_args():
     parser.add_argument('--number_of_eigenvectors', type=int, default=20,
                         help='number of eigen vector to use for the pe')
     parser.add_argument('--offset', type=int, default=0, help='the offset in time for taking information')
+    parser.add_argument('--num_conv_layers', type=int, default=1, help='number of conv layers')
+    parser.add_argument('--conv_hidden_dim', type=int, default=1, help='conv layers hidden dimension')
+    parser.add_argument('--dont_use_scheduler', action='store_true', help='whether to use sched')
+    parser.add_argument('--weight_decay', type=float,default=0.0, help='weight decay for adam optimizer')
 
     args = parser.parse_args()
 
@@ -90,11 +94,12 @@ def run(
         metric_name,
         use_scheduler=False,
         print_steps=True,
+        weight_decay = 0,
         n_runs=10,
 ):
     """Train the model for NUM_EPOCHS epochs and run n times"""
     # Instantiate optimiser and scheduler
-    optimiser = optim.Adam(model.parameters(), lr=LR)
+    optimiser = optim.Adam(model.parameters(), lr=LR,weight_decay=weight_decay)
     scheduler = (
         optim.lr_scheduler.StepLR(optimiser, step_size=STEP_SIZE, gamma=GAMMA)
         if use_scheduler
@@ -214,11 +219,16 @@ if __name__ == '__main__':
     DEVICE = args.device
     TRAIN_PORTION = args.train_portion
     LENGTH_OF_PAST = args.length_of_past
+    args.use_pe = True
     USE_PE = args.use_pe
     HISTORY_FOR_PE = args.history_for_pe
+    NUM_CONV_LAYERS = args.num_conv_layers
     NUMBER_OF_EIGENVECTORS = args.number_of_eigenvectors if args.use_pe else 0
     OFFSET = args.offset
+    CONV_HIDDEN_DIM = args.conv_hidden_dim
     IN_DIM = args.length_of_past + NUMBER_OF_EIGENVECTORS
+    USE_SCHEDULER = not args.dont_use_scheduler
+    WEIGHT_DECAY = args.weight_decay
     STEP_SIZE = 5
     GAMMA = 0.9
     torch.manual_seed(SEED)
@@ -232,7 +242,7 @@ if __name__ == '__main__':
     name = ['regulardf', 'temporaldf', 'oscilationdf', 'PD_df']
     num_runs = 1
 
-    for n, df in zip(name[:1], df_list[:1]):
+    for n, df in zip(name[1:], df_list[1:]):
         wandb.init(project="StaticMPGoL", name=args.run_name + f'_{n}', config=vars(args))
 
         ds, f_name = calc_ds(df, length_of_past=LENGTH_OF_PAST,
@@ -251,9 +261,10 @@ if __name__ == '__main__':
         model = DeepGraphConvNet(
             in_dim=IN_DIM,
             hidden_channels=HIDDEN_DIM,
+            conv_hidden_dim=CONV_HIDDEN_DIM,
             out_dim=1,
             num_layers=NUM_LAYERS,
-            num_conv_layers=3).to(DEVICE)
+            num_conv_layers=NUM_CONV_LAYERS).to(DEVICE)
         for i in range(num_runs):
             train_acc, test_acc = run(
                 model,
@@ -263,7 +274,8 @@ if __name__ == '__main__':
                 metric_fn=[recall_score, precision_score, accuracy_score, f1_score, diversity],  # precision_score,
                 metric_name=['recall', 'precision', 'accuracy', 'f1', 'diversity_pred'],
                 print_steps=False,
-                use_scheduler=True
+                use_scheduler=USE_SCHEDULER,
+                weight_decay = WEIGHT_DECAY
             )
             train_acc_list.append(train_acc)
             test_acc_list.append(test_acc)
