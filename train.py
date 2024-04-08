@@ -41,7 +41,7 @@ def get_args():
     parser.add_argument('--num_conv_layers', type=int, default=1, help='number of conv layers')
     parser.add_argument('--conv_hidden_dim', type=int, default=1, help='conv layers hidden dimension')
     parser.add_argument('--dont_use_scheduler', action='store_true', help='whether to use sched')
-    parser.add_argument('--weight_decay', type=float,default=0.0, help='weight decay for adam optimizer')
+    parser.add_argument('--weight_decay', type=float, default=0.0, help='weight decay for adam optimizer')
 
     args = parser.parse_args()
 
@@ -94,12 +94,12 @@ def run(
         metric_name,
         use_scheduler=False,
         print_steps=True,
-        weight_decay = 0,
+        weight_decay=0,
         n_runs=10,
 ):
     """Train the model for NUM_EPOCHS epochs and run n times"""
     # Instantiate optimiser and scheduler
-    optimiser = optim.Adam(model.parameters(), lr=LR,weight_decay=weight_decay)
+    optimiser = optim.Adam(model.parameters(), lr=LR, weight_decay=weight_decay)
     scheduler = (
         optim.lr_scheduler.StepLR(optimiser, step_size=STEP_SIZE, gamma=GAMMA)
         if use_scheduler
@@ -153,8 +153,7 @@ def calc_ds(df, length_of_past=1, use_pe=False, history_for_pe=10, number_of_eig
     for i in tqdm(range(offset, df.i.max() - 1)):
         prev_10_ts = df.loc[(df.i > i - length_of_past - offset) & (df.i <= i - offset)]
         if use_pe:
-            # todo: also off set for pe?
-            partial_df = df.loc[(df.i > i - history_for_pe) & (df.i <= i)]
+            partial_df = df.loc[(df.i > i - history_for_pe - offset) & (df.i <= i - offset)]
             graphs = create_graphs_from_df(partial_df)
             unified_graph = create_unified_graph(graphs)
             eigenvectors, eigenvalues = get_efficient_eigenvectors(unified_graph, number_of_eigenvectors)
@@ -275,7 +274,7 @@ if __name__ == '__main__':
                 metric_name=['recall', 'precision', 'accuracy', 'f1', 'diversity_pred'],
                 print_steps=False,
                 use_scheduler=USE_SCHEDULER,
-                weight_decay = WEIGHT_DECAY
+                weight_decay=WEIGHT_DECAY
             )
             train_acc_list.append(train_acc)
             test_acc_list.append(test_acc)
