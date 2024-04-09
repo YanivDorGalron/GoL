@@ -1,6 +1,5 @@
 import argparse
 import os
-import pdb
 import random
 
 import numpy as np
@@ -14,28 +13,33 @@ from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
 import wandb
-from architecture.models import GraphConvNet, ModifiedGraphConvNet, GINNet, GATNet, DeepGraphConvNet
+from architecture.models import DeepGraphConvNet
 from mesh.utils import create_graphs_from_df, create_unified_graph, get_efficient_eigenvectors
-from utils import count_consecutive_ones_from_end, concat_multiple_times
+import torch
+
+
+def get_freer_gpu():
+    os.system('nvidia-smi -q -d Memory |grep -A4 GPU|grep Used >tmp')
+    memory_available = [int(x.split()[2]) for x in open('tmp', 'r').readlines()]
+    return np.argmin(memory_available)
 
 
 def get_args():
     parser = argparse.ArgumentParser(description='Train a GCN model for the Game of Life')
+    parser.add_argument('--device', type=str, default=f'cuda:{get_freer_gpu()}', help='Device to use for training')
     parser.add_argument('--batch_size', type=int, default=32, help='Input batch size for training')
-    parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs to train for')
+    parser.add_argument('--num_epochs', type=int, default=1000, help='Number of epochs to train for')
     parser.add_argument('--hidden_dim', type=int, default=200, help='Dimension of the hidden layer')
     parser.add_argument('--num_layers', type=int, default=8, help='Number of GCN layers')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--seed', type=int, default=32, help='Random seed')
-    parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu',
-                        help='Device to use for training')
     parser.add_argument('--train_portion', type=float, default=0.8, help='Portion of data to use for training')
     parser.add_argument('--run_name', type=str, default='try', help='name in wandb')
     parser.add_argument('--length_of_past', type=int, default=10,
                         help='How many past states to consider as node features')
-    parser.add_argument('--use_pe', action='store_true', help='Whether to use pe or not')
-    parser.add_argument('--history_for_pe', type=int, default=10,
-                        help='number of timestamps to take for calculating the pe')
+    # parser.add_argument('--use_pe', action='store_true', help='Whether to use pe or not')
+    # parser.add_argument('--history_for_pe', type=int, default=10,
+    #                     help='number of timestamps to take for calculating the pe')
     parser.add_argument('--number_of_eigenvectors', type=int, default=20,
                         help='number of eigen vector to use for the pe')
     parser.add_argument('--offset', type=int, default=0, help='the offset in time for taking information')
@@ -44,13 +48,10 @@ def get_args():
     parser.add_argument('--dont_use_scheduler', action='store_true', help='whether to use scheduler')
     parser.add_argument('--weight_decay', type=float, default=0.0, help='weight decay for adam optimizer')
     parser.add_argument('--data_name', type=str,
-                        choices=['Regular', 'Temporal', 'Oscilations', 'PastDependent'],
+                        choices=['Regular', 'Temporal', 'Oscilations', 'PastDependent'], default='Regular',
                         help='path to dataset')
 
     args = parser.parse_args()
-
-    # if args.run_name == 'try':
-    #     args.run_name = input("Please enter a run name: ")
     return args
 
 
@@ -61,7 +62,7 @@ def train(train_loader, model, optimiser, loss_fn, metric_fn):
     num_graphs = 0
     for data in train_loader:
         optimiser.zero_grad()
-        data = data.to(DEVICE)
+        data = data.to(args.device)
         y_hat = model(data.x, data.edge_index)[:, 0]
         loss = loss_fn(y_hat, data.y.to(torch.float32))
         loss.backward()
@@ -76,7 +77,7 @@ def evaluate(loader, model, metric_fn):
     y_pred, y_true = [], []
     model.eval()
     for data in loader:
-        data = data.to(DEVICE)
+        data = data.to(args.device)
         y_hat = model(data.x, data.edge_index)
 
         y_pred.append(y_hat.detach().cpu())
@@ -99,18 +100,22 @@ def run(
         use_scheduler=False,
         print_steps=True,
         weight_decay=0,
-        n_runs=10,
+        patience=151,
+        early_stopping_metric='test_f1',
 ):
     """Train the model for NUM_EPOCHS epochs and run n times"""
     # Instantiate optimiser and scheduler
-    optimiser = optim.Adam(model.parameters(), lr=LR, weight_decay=weight_decay)
+    optimiser = optim.Adam(model.parameters(), lr=args.lr, weight_decay=weight_decay)
     scheduler = (
         optim.lr_scheduler.StepLR(optimiser, step_size=STEP_SIZE, gamma=GAMMA)
         if use_scheduler
         else None
     )
     curves = {name: [] for name in loaders.keys()}
-    for epoch in tqdm(range(NUM_EPOCHS)):
+
+    best_metric = -float('inf')
+    patience_counter = 0
+    for epoch in tqdm(range(args.num_epochs)):
         train_loss = train(
             train_loader, model, optimiser, loss_fn, metric_fn
         )
@@ -128,6 +133,17 @@ def run(
             for m_name, value in zip(metric_name, metric_values[-1]):
                 log_dict[f"{name}_{m_name}"] = value
         wandb.log(log_dict)
+
+        # Early stopping
+        current_metric = log_dict[early_stopping_metric]
+        if current_metric > best_metric:
+            best_metric = current_metric
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                print(f"Early stopping at epoch {epoch}")
+                break
 
     return curves['train'][-1], curves['test'][-1]
 
@@ -205,19 +221,20 @@ def diversity(y_true, y_pred):
 
 if __name__ == '__main__':
     args = get_args()
+    args.use_pe = True
     NUMBER_OF_EIGENVECTORS = args.number_of_eigenvectors if args.use_pe else 0
     IN_DIM = args.length_of_past + NUMBER_OF_EIGENVECTORS
     USE_SCHEDULER = not args.dont_use_scheduler
-    STEP_SIZE = 5
-    GAMMA = 0.9
+    STEP_SIZE = 50
+    GAMMA = 0.5
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    df = pd.read_csv(f'/raid/home/ygalron/big-storage/notebooks/saved/data/{args.data_name}GoL.csv')
-    wandb.init(project="StaticMPGoL", name=args.run_name + f'_{args.data_name}', config=vars(args))
+    df = pd.read_csv(f'/home/ygalron/big-storage/notebooks/saved/data/{args.data_name}GoL.csv')
+    wandb.init(project="PEStaticMPGoLSweep", name=args.run_name + f'_{args.data_name}', config=vars(args))
 
     ds, f_name = calc_ds(df, length_of_past=args.length_of_past,
-                         use_pe=args.use_pe, history_for_pe=args.history_for_pe, n=args.data_name,
+                         use_pe=args.use_pe, history_for_pe=args.length_of_past, n=args.data_name,
                          number_of_eigenvectors=NUMBER_OF_EIGENVECTORS, offset=args.offset)
 
     random.shuffle(ds)
