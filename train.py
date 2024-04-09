@@ -4,10 +4,11 @@ import random
 
 import numpy as np
 import pandas as pd
-import torch
 import torch.nn.functional as F
 import torch.optim as optim
+import torch_geometric.utils
 from sklearn.metrics import accuracy_score, recall_score, f1_score, precision_score
+from torch_geometric.nn import MessagePassing
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
@@ -173,6 +174,7 @@ def calc_ds(df, length_of_past=1, use_pe=False, history_for_pe=10, number_of_eig
     eigenvectors = None
     for i in tqdm(range(offset, df.i.max() - 1)):
         prev_10_ts = df.loc[(df.i > i - length_of_past - offset) & (df.i <= i - offset)]
+        current_df = df[df.i == i - offset]
         if use_pe:
             partial_df = df.loc[(df.i > i - history_for_pe - offset) & (df.i <= i - offset)]
             graphs = create_graphs_from_df(partial_df)
@@ -195,7 +197,7 @@ def calc_ds(df, length_of_past=1, use_pe=False, history_for_pe=10, number_of_eig
             x = np.concatenate([x, eigenvectors[-x.shape[0]:]], axis=1)
         x = torch.tensor(x, dtype=torch.float)
 
-        edges = np.stack([prev_10_ts['a'].values, prev_10_ts['b'].values], axis=1)
+        edges = np.stack([current_df['a'].values, current_df['b'].values], axis=1)
         edges = np.concatenate([edges, edges[:, ::-1]])
         edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
 
@@ -220,9 +222,35 @@ def diversity(y_true, y_pred):
     return y_pred.float().std().item()
 
 
+def evaluate_baselines(loaders, loaders_names):
+    log_dict = {}
+    for _ in tqdm(range(args.num_epochs)):
+        for loader, l_name in zip(loaders, loaders_names):
+            for data in loader:
+                value = run_baseline_on_data(data)
+                log_dict[f"{l_name}_f1"] = value
+        wandb.log(log_dict)
+
+
+class SumNeighborsFeatures(MessagePassing):
+    def __init__(self):
+        super().__init__(aggr='sum')
+
+    def forward(self, x, edge_index):
+        out = self.propagate(edge_index, x=x)
+        adj = torch_geometric.utils.to_dense_adj(edge_index)
+        return out
+
+
+def run_baseline_on_data(data):
+    summer = SumNeighborsFeatures()
+    features_sum = summer(data.x, data.edge_index)
+    print('hey')
+
+
 if __name__ == '__main__':
     args = get_args()
-    args.use_pe = True
+    args.use_pe = False
     NUMBER_OF_EIGENVECTORS = args.number_of_eigenvectors if args.use_pe else 0
     IN_DIM = args.length_of_past + NUMBER_OF_EIGENVECTORS
     USE_SCHEDULER = not args.dont_use_scheduler
@@ -232,7 +260,7 @@ if __name__ == '__main__':
     np.random.seed(args.seed)
 
     df = pd.read_csv(f'/home/ygalron/big-storage/notebooks/saved/data/{args.data_name}GoL.csv')
-    wandb.init(project="PEStaticMPGoLSweep", name=args.run_name + f'_{args.data_name}', config=vars(args))
+    # wandb.init(project="PEStaticMPGoLSweep", name=args.run_name + f'_{args.data_name}', config=vars(args))
 
     ds, f_name = calc_ds(df, length_of_past=args.length_of_past,
                          use_pe=args.use_pe, history_for_pe=args.length_of_past, n=args.data_name,
@@ -243,8 +271,8 @@ if __name__ == '__main__':
     train_dataset = ds[:train_size]
     test_dataset = ds[train_size:]
 
-    train_loader = DataLoader(train_dataset, 5 * args.batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, 5 * args.batch_size, shuffle=True)
+    train_loader = DataLoader(train_dataset, 1, shuffle=True)  # , 5 * args.batch_size
+    test_loader = DataLoader(test_dataset, 1, shuffle=True)
     model = DeepGraphConvNet(
         in_dim=IN_DIM,
         hidden_channels=args.hidden_dim,
@@ -252,15 +280,17 @@ if __name__ == '__main__':
         out_dim=1,
         num_layers=args.num_layers,
         num_conv_layers=args.num_conv_layers).to(args.device)
-    run(model, train_loader,
-        {"train": train_loader, "test": test_loader},
-        loss_fn=F.binary_cross_entropy,
-        metric_fn=[recall_score, precision_score, accuracy_score, f1_score, diversity],
-        metric_name=['recall', 'precision', 'accuracy', 'f1', 'diversity_pred'],
-        print_steps=False,
-        use_scheduler=USE_SCHEDULER,
-        weight_decay=args.weight_decay
-        )
-    print('saving_checkpoint')
-    torch.save({'model_state_dict': model.state_dict()}, f'./checkpoints/{args.run_name}_{args.data_name}.pt')
+
+    evaluate_baselines([train_loader, test_loader], ['train', 'test'])
+    # run(model, train_loader,
+    #     {"train": train_loader, "test": test_loader},
+    #     loss_fn=F.binary_cross_entropy,
+    #     metric_fn=[recall_score, precision_score, accuracy_score, f1_score, diversity],
+    #     metric_name=['recall', 'precision', 'accuracy', 'f1', 'diversity_pred'],
+    #     print_steps=False,
+    #     use_scheduler=USE_SCHEDULER,
+    #     weight_decay=args.weight_decay
+    #     )
+    # print('saving_checkpoint')
+    # torch.save({'model_state_dict': model.state_dict()}, f'./checkpoints/{args.run_name}_{args.data_name}.pt')
     wandb.finish()
