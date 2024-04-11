@@ -5,7 +5,7 @@ from plotly_gif import GIF
 from tqdm import tqdm
 
 from mesh.utils import create_graph_from_clouds, draw_cloud, update_communities, update_grid, dict_colors, \
-    transfer_att_from_graph, create_edge_df, get_V_F_of_obj, create_grid
+    transfer_att_from_graph, create_edge_df, get_V_F_of_obj, create_grid, run_knn_once
 
 
 def consensus_dynamics(points_type='grid',
@@ -21,7 +21,8 @@ def consensus_dynamics(points_type='grid',
     name = f'{prefix}_consensus_dynamics_seed_{seed}_initial_k_{initial_k}_steps_{steps}_history_{history}_a_{a}_b_{b}'
     partial_V = get_points(points_type, obj_path, sample_size)
     np.random.seed(seed)
-    G = create_graph_from_clouds(partial_V, k=initial_k, majority=majority)  # same as grid
+    indices = run_knn_once(partial_V, 30)
+    G = create_graph_from_clouds(indices=indices, points=partial_V, k=initial_k, majority=majority)  # same as grid
     fig = draw_cloud(G, partial_V, sz=sz)
 
     gif = GIF(verbose=False)
@@ -43,7 +44,8 @@ def space_invariant_GoL(points_type='obj', obj_path=None, seed=42, sz=2, steps=1
     name = f'{prefix}_space_invariant_GoL_seed_{seed}_initial_k_{initial_k}_steps_{steps}_k_delta_{k_delta}_kmin_{kmin}_w_{w}_oscilations_{oscilations}'
     np.random.seed(seed)
     partial_V = get_points(points_type, obj_path, sample_size)
-    G, color, k, partial_V, sorted_nodes = create_and_color_graph(partial_V, initial_k, red_nodes)
+    indices = run_knn_once(partial_V, 30)
+    G, color, sorted_nodes = create_and_color_graph(indices, partial_V, initial_k, red_nodes)
 
     gif = GIF(verbose=False)
 
@@ -54,19 +56,19 @@ def space_invariant_GoL(points_type='obj', obj_path=None, seed=42, sz=2, steps=1
     Graphs = [G.copy()]
     for i in tqdm(range(steps)):
         resource_stock = update_grid(G, temporal=temporal, resource=use_resource, resource_stock=resource_stock,
-                                     max_age=max_age, critical_survival_period=critical_survival_period)
+                                     max_age=max_age, critical_survival_period=critical_survival_period, ts=i)
         resource_stock = resource_stock + round(len(G.nodes) // 5)
 
         color = [dict_colors[G.nodes[node]['state']] for node in sorted_nodes]
         fig = draw_cloud(G, partial_V, color, sz=sz, title=f'index: {i}')
-        Graphs.append(G.copy())
 
         if oscilations:
             k = valid_k[(i + 1) % len(valid_k)]
             # k = round(k_delta * (np.sin(i * w) + 1) / 2 + kmin) - round(k_delta / 2 + kmin - initial_k)
-            G1 = create_graph_from_clouds(partial_V, k)
+            G1 = create_graph_from_clouds(indices=indices, points=partial_V, k=k)
             G = transfer_att_from_graph(G, G1)
 
+        Graphs.append(G.copy())
         if create_gif:
             gif.create_image(fig)
 
@@ -78,11 +80,10 @@ def space_invariant_GoL(points_type='obj', obj_path=None, seed=42, sz=2, steps=1
         df.to_csv(f'saved/{name}.csv')
 
 
-def create_and_color_graph(partial_V, initial_k, red_nodes):
-    k = initial_k
-    G = create_graph_from_clouds(partial_V, k=k)
+def create_and_color_graph(indices, partial_V, initial_k, red_nodes):
+    G = create_graph_from_clouds(indices, partial_V, k=initial_k)
     color, sorted_nodes = color_graph(G, partial_V, red_nodes)
-    return G, color, k, partial_V, sorted_nodes
+    return G, color, sorted_nodes
 
 
 def color_graph(G, partial_V, red_nodes):
@@ -140,7 +141,8 @@ def past_dependent_GoL(points_type='grid', obj_path=None, seed=42, sz=2, steps=1
     # valid_k = [9, 13, 21, 25, 5]
     # k = np.random.choice(valid_k, size=len(partial_V))
     k = np.array([random.randint(kmin, kmax) for _ in range(len(partial_V))])
-    G = create_graph_from_clouds(partial_V, k=k)
+    indices = run_knn_once(partial_V, 30)
+    G = create_graph_from_clouds(indices, partial_V, k=k)
 
     color, sorted_nodes = color_graph(G, partial_V, red_nodes)
 
@@ -157,7 +159,6 @@ def past_dependent_GoL(points_type='grid', obj_path=None, seed=42, sz=2, steps=1
         resource_stock = resource_stock + round(len(G.nodes) // 5)
         color = [dict_colors[G.nodes[node]['state']] for node in sorted_nodes]
         fig = draw_cloud(G, partial_V, color, sz=sz)
-        Graphs.append(G.copy())
 
         if len(k_history) < 2:
             # k = np.random.choice(valid_k, size=len(partial_V))
@@ -165,8 +166,9 @@ def past_dependent_GoL(points_type='grid', obj_path=None, seed=42, sz=2, steps=1
         else:
             k_history = k_history[-2:]
             k = (kmin + (kmax - kmin) * (0.5 + np.sin(w * k_history[0] * k_history[1]) / 2)).astype(int)
-        G1 = create_graph_from_clouds(partial_V, k)
+        G1 = create_graph_from_clouds(indices, partial_V, k)
         G = transfer_att_from_graph(G, G1)
+        Graphs.append(G.copy())
         k_history.append(k)
 
         if create_gif:

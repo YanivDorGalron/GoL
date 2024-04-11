@@ -1,37 +1,34 @@
 import argparse
 import os
-import pdb
-import random
 
 import numpy as np
 import pandas as pd
-import torch.nn.functional as F
+import torch
 import torch.optim as optim
 import torch_geometric.utils
-from sklearn.metrics import accuracy_score, recall_score, f1_score, precision_score
-from torch_geometric.nn import MessagePassing
+from sklearn.metrics import f1_score
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
+from torch_geometric.nn import MessagePassing
 from tqdm import tqdm
 
 import wandb
 from architecture.models import DeepGraphConvNet
 from mesh.utils import create_graphs_from_df, create_unified_graph, get_efficient_eigenvectors
-import torch
 
 
 def get_freer_gpu():
     os.system('nvidia-smi -q -d Memory |grep -A4 GPU|grep Used >tmp')
     memory_available = [int(x.split()[2]) for x in open('tmp', 'r').readlines()]
     os.remove('tmp')
-    return np.argmin(memory_available)
+    return 0  # np.argmin(memory_available)
 
 
 def get_args():
     parser = argparse.ArgumentParser(description='Train a GCN model for the Game of Life',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--device', type=str, default=f'cuda:{get_freer_gpu()}', help='Device to use for training')
-    parser.add_argument('--num_epochs', type=int, default=1000, help='Number of epochs to train for')
+    parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs to train for')
     parser.add_argument('--hidden_dim', type=int, default=200, help='Dimension of the hidden layer')
     parser.add_argument('--num_layers', type=int, default=8, help='Number of GCN layers')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
@@ -51,7 +48,8 @@ def get_args():
     parser.add_argument('--dont_use_scheduler', action='store_true', help='whether to use scheduler')
     parser.add_argument('--weight_decay', type=float, default=0.0, help='weight decay for adam optimizer')
     parser.add_argument('--data_name', type=str,
-                        choices=['Regular', 'Temporal', 'Oscilations', 'PastDependent'], default='Regular',
+                        choices=['regular', 'temporal', 'oscillations', 'past-dependent', 'static-oscillations'],
+                        default='regular',
                         help='path to dataset')
 
     args = parser.parse_args()
@@ -201,11 +199,7 @@ def calc_ds(df, length_of_past=1, use_pe=False, history_for_pe=10, number_of_eig
         edges = np.stack([current_df['a'].values, current_df['b'].values], axis=1)
         edges = np.concatenate([edges, edges[:, ::-1]])
         edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
-        # adj = torch_geometric.utils.to_dense_adj(edge_index)
-        # number_of_neighbors, _ = torch.mode(adj.sum(dim=1)[0])  # might not work when bs is bigger then 1
-        # print(number_of_neighbors)
-        # pdb.set_trace()
-
+        # print(torch_geometric.utils.to_dense_adj(edge_index)[0].sum(dim=0))
         next_df = df[df.i == i + 1]
         states = np.concatenate([next_df['state_a'].values, next_df['state_b'].values])
         nodes = np.concatenate([next_df['a'].values, next_df['b'].values])
@@ -246,28 +240,25 @@ class SumNeighborsFeatures(MessagePassing):
         return out
 
 
-def run_baseline_on_data(data, use_temporal_condition=True):
+def run_baseline_on_data(data, use_temporal_condition=False):
     summer = SumNeighborsFeatures()
-    adj = torch_geometric.utils.to_dense_adj(edge_index=data.edge_index)
+    adj = torch_geometric.utils.to_dense_adj(edge_index=data.edge_index)[0]
     features_sum = summer(data.x, data.edge_index)
     last_states_sums = features_sum[:, -1]
-    number_of_neighbors, _ = torch.mode(adj.sum(dim=1)[0])  # might not work when bs is bigger then 1
-    # pdb.set_trace()
-    # print(number_of_neighbors)
-    # pdb.set_trace()
+    number_of_neighbors = adj.sum(dim=1)  # might not work when bs is bigger then 1
     lower_bound = torch.max(2 * number_of_neighbors / 8, torch.tensor(2))
     upper_bound = torch.max(3 * number_of_neighbors / 8, torch.tensor(3))
+    # print('lower_bound', lower_bound, 'upper_bound', upper_bound)
+    # print('lower_bound', lower_bound, 'upper_bound', upper_bound)
     gol_condition = ((last_states_sums >= lower_bound) & (last_states_sums <= upper_bound))
-    last_three_sum = data.x[:, -3:].sum(dim=1)
-    total_sum = data.x.sum(dim=1)
     if use_temporal_condition:
+        last_three_sum = data.x[:, -3:].sum(dim=1)
+        total_sum = data.x.sum(dim=1)
         critical_survival_condition = torch.where((last_three_sum == 3), 1, 0)
         must_die = torch.where((total_sum == 11), 0, 1)
         y_pred = (gol_condition | critical_survival_condition) & must_die
     else:
         y_pred = gol_condition
-    print('sum of data y', sum(data.y))
-    print('sum of y pred', sum(y_pred))
     return f1_score(data.y, y_pred)
 
 
@@ -281,8 +272,8 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    df = pd.read_csv(f'/home/ygalron/big-storage/notebooks/saved/data/{args.data_name}GoL.csv')
-    wandb.init(project="free_of_bugs", name=args.run_name + f'_{args.data_name}', config=vars(args))
+    df = pd.read_csv(f'/home/ygalron/big-storage/notebooks/saved/data/{args.data_name}-GoL.csv')
+    wandb.init(project="free_of_bugs", name=args.run_name + f'-{args.data_name}', config=vars(args))
 
     ds, f_name = calc_ds(df, length_of_past=args.length_of_past,
                          use_pe=args.use_pe, history_for_pe=args.length_of_past, n=args.data_name,

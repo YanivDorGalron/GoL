@@ -174,18 +174,12 @@ class TorusDistance:
 
 # Generate random points (replace with your actual data)
 
-def create_graph_from_clouds(points, k=5, majority=False):
+def create_graph_from_clouds(indices, points, k=5, majority=False):
     if isinstance(k, int):
         k_values = [k] * len(points)
     else:
         k_values = k
-    # Construct kNN graph
-    max_k = max(k_values)
-    torus_metric = TorusDistance(points)
-    nbrs = NearestNeighbors(n_neighbors=max_k, algorithm='ball_tree', metric=torus_metric).fit(points)
-    distances, indices = nbrs.kneighbors(points)
 
-    # Create a graph using NetworkX
     G = nx.Graph()
     for i in tqdm(range(len(points))):
         G.add_node(i, xyz=points[i])  # Add the point as an attribute to the node
@@ -194,12 +188,6 @@ def create_graph_from_clouds(points, k=5, majority=False):
             if i != j:  # Avoid self-loops
                 G.add_edge(i, j)
 
-    count = 0
-    for node in G.nodes():
-        c1 = len(list(G.neighbors(node)))
-        if c1 != max_k - 1:
-            count += 1
-    print(count, max_k - 1)
     if majority:
         node_color = [np.random.choice(['blue', 'red', 'gray'], p=[0.1, 0.1, 0.8]) for _ in G.nodes()]
     else:
@@ -212,6 +200,13 @@ def create_graph_from_clouds(points, k=5, majority=False):
         G.nodes[node]['state'] = 0
 
     return G
+
+
+def run_knn_once(points, max_k):
+    torus_metric = TorusDistance(points)
+    nbrs = NearestNeighbors(n_neighbors=max_k, algorithm='ball_tree', metric=torus_metric).fit(points)
+    distances, indices = nbrs.kneighbors(points)
+    return indices
 
 
 # Function to update node communities based on neighbors
@@ -260,7 +255,7 @@ def create_grid_graph(rows, cols):
 
 
 # Update the state of each cell based on Conway's Game of Life rules
-def update_grid(G, temporal, resource_stock, resource, max_age=100, critical_survival_period=2):
+def update_grid(G, temporal, resource_stock, resource, max_age=100, critical_survival_period=2, ts=None):
     """Update the state of each cell in the grid G according to the rules of Conway's Game of Life.
 
     Args:
@@ -277,16 +272,19 @@ def update_grid(G, temporal, resource_stock, resource, max_age=100, critical_sur
     random.shuffle(nodes)
     for node in nodes:
         live_neighbors = 0
-        for neighbor in G.neighbors(node):
+        neighbors = list(G.neighbors(node))
+        k = len(neighbors)
+        for neighbor in neighbors:
             if G.nodes[neighbor]['state'] == 1:
                 live_neighbors += 1
         if 'memory' not in G.nodes[node]:
             G.nodes[node]['memory'] = 0
 
-        k = len(list(G.neighbors(node)))
         lower_bound = max(2 * k / 8, 2)
         upper_bound = max(3 * k / 8, 3)
         next_state[node] = 1 if lower_bound <= live_neighbors <= upper_bound else 0
+        # print('ts', ts, 'node', node, 'lower_bound', lower_bound, 'upper_bound', upper_bound, 'live_neighbors',
+        #       live_neighbors, 'number_of_neighbors', k)
 
         time_alive = G.nodes[node]['memory']
         if temporal:
