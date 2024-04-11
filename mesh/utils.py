@@ -1,7 +1,9 @@
+import pdb
 import random
 import warnings
 
 import networkx as nx
+import numpy as np
 import plotly.graph_objects as go
 import plotly.graph_objs as go
 from sklearn.neighbors import NearestNeighbors
@@ -130,6 +132,46 @@ def draw_cloud(G, points, color=None, fig=None, draw_edges=True, sz=1, width=100
     return fig
 
 
+class TorusDistance:
+    def __init__(self, points):
+        """
+        Initialize the TorusDistance object.
+
+        Args:
+            points (numpy.ndarray): An array of 2D points on the torus grid.
+
+        Assumptions:
+            - The grid is defined on the xy-plane.
+            - The points are equally spaced along each axis.
+            - The grid has the same number of points along the x and y axes.
+        """
+        points = np.asarray(points)
+        self.N = abs(points[:, 0].max() - points[:, 0].min())
+        self.M = abs(points[:, 1].max() - points[:, 1].min())
+        self.delta = self.M / np.sqrt(len(points))
+
+    def __call__(self, point1, point2):
+        """
+        Calculate the torus distance between two points.
+
+        Args:
+            point1 (numpy.ndarray or list): A 1D array or list representing the first point.
+            point2 (numpy.ndarray or list): A 1D array or list representing the second point.
+
+        Returns:
+            float: The torus distance between the two points.
+        """
+        point1 = np.asarray(point1)
+        point2 = np.asarray(point2)
+
+        regular_x_distance = np.abs(point1[0] - point2[0])
+        regular_y_distance = np.abs(point1[1] - point2[1])
+        dx = np.minimum(round(regular_x_distance, 15), round(self.N - regular_x_distance + self.delta, 15))
+        dy = np.minimum(round(regular_y_distance, 15), round(self.M - regular_y_distance + self.delta, 15))
+
+        return np.sqrt(dx ** 2 + dy ** 2)
+
+
 # Generate random points (replace with your actual data)
 
 def create_graph_from_clouds(points, k=5, majority=False):
@@ -139,22 +181,29 @@ def create_graph_from_clouds(points, k=5, majority=False):
         k_values = k
     # Construct kNN graph
     max_k = max(k_values)
-    nbrs = NearestNeighbors(n_neighbors=max_k, algorithm='ball_tree').fit(points)
+    torus_metric = TorusDistance(points)
+    nbrs = NearestNeighbors(n_neighbors=max_k, algorithm='ball_tree', metric=torus_metric).fit(points)
     distances, indices = nbrs.kneighbors(points)
 
     # Create a graph using NetworkX
     G = nx.Graph()
-    for i in range(len(points)):
+    for i in tqdm(range(len(points))):
         G.add_node(i, xyz=points[i])  # Add the point as an attribute to the node
         current_node_degree = k_values[i]
         for j in indices[i][:current_node_degree]:
             if i != j:  # Avoid self-loops
                 G.add_edge(i, j)
 
+    count = 0
+    for node in G.nodes():
+        c1 = len(list(G.neighbors(node)))
+        if c1 != max_k - 1:
+            count += 1
+    print(count, max_k - 1)
     if majority:
-        node_color = [np.random.choice(['blue', 'red', 'gray'], p=[0.1, 0.1, 0.8]) for node in G.nodes()]
+        node_color = [np.random.choice(['blue', 'red', 'gray'], p=[0.1, 0.1, 0.8]) for _ in G.nodes()]
     else:
-        node_color = [random.choice(['gray']) for node in G.nodes()]
+        node_color = [random.choice(['gray']) for _ in G.nodes()]
 
     for i, node in enumerate(G.nodes()):
         G.nodes[node]['community'] = colors_dict[node_color[i]]
@@ -169,7 +218,6 @@ def create_graph_from_clouds(points, k=5, majority=False):
 def update_communities(G, a, b, past_communities=None, history=3):
     d = {}
     if past_communities is None:
-        default_dict = {0: 0, 1: 0}
         past_communities = defaultdict(list)
     for node in G.nodes():
         neighbors = list(G.neighbors(node))
@@ -212,7 +260,7 @@ def create_grid_graph(rows, cols):
 
 
 # Update the state of each cell based on Conway's Game of Life rules
-def update_grid(G, temporal, resource_stock, resource, k=None, max_age=100, critical_survival_period=2):
+def update_grid(G, temporal, resource_stock, resource, max_age=100, critical_survival_period=2):
     """Update the state of each cell in the grid G according to the rules of Conway's Game of Life.
 
     Args:
@@ -220,16 +268,10 @@ def update_grid(G, temporal, resource_stock, resource, k=None, max_age=100, crit
         temporal (bool): Whether to apply temporal rules for cell survival.
         resource_stock (int): The current stock of resources.
         resource (bool): Whether to apply resource dynamics.
-        k (int or list, optional): The number of live neighbors required for a dead cell to become alive. If a list is provided, it specifies the k value for each node. if None regular conditions are set
 
     Returns:
         int: The updated resource stock after applying the rules.
     """
-    if isinstance(k, int):
-        k_values = [k] * len(G.nodes())
-    else:
-        k_values = k
-
     next_state = {}
     nodes = list(G.nodes())
     random.shuffle(nodes)
@@ -241,24 +283,10 @@ def update_grid(G, temporal, resource_stock, resource, k=None, max_age=100, crit
         if 'memory' not in G.nodes[node]:
             G.nodes[node]['memory'] = 0
 
-        if k_values is None:
-            if G.nodes[node]['state'] == 1:
-                if live_neighbors < 2 or live_neighbors > 3:
-                    next_state[node] = 0
-                else:
-                    next_state[node] = 1
-            else:
-                if live_neighbors == 3:
-                    next_state[node] = 1
-                else:
-                    next_state[node] = 0
-        else:
-            lower_bound = max(2 * (k_values[node] - 1) / 8, 2)
-            upper_bound = max(3 * (k_values[node] - 1) / 8, 3)
-            if lower_bound <= live_neighbors <= upper_bound:
-                next_state[node] = 1
-            else:
-                next_state[node] = 0
+        k = len(list(G.neighbors(node)))
+        lower_bound = max(2 * k / 8, 2)
+        upper_bound = max(3 * k / 8, 3)
+        next_state[node] = 1 if lower_bound <= live_neighbors <= upper_bound else 0
 
         time_alive = G.nodes[node]['memory']
         if temporal:
@@ -273,7 +301,6 @@ def update_grid(G, temporal, resource_stock, resource, k=None, max_age=100, crit
                 if next_state[node] == 1:
                     resource_stock -= time_alive
             else:
-                # Handle resource depletion
                 next_state[node] = 0
 
         G.nodes[node]['memory'] = G.nodes[node]['memory'] + 1 if next_state[node] == 1 else 0
@@ -292,7 +319,6 @@ def transfer_att_from_graph(from_g, to_g):
     for node in from_g.nodes:
         for key, value in from_g.nodes[node].items():
             to_g.nodes[node][key] = value
-
     return to_g
 
 
@@ -384,9 +410,8 @@ def create_grid(x_range, y_range, resolution, z_const):
     x_min, x_max = x_range
     y_min, y_max = y_range
 
-    x_values = np.arange(x_min, x_max + resolution, resolution)
-    y_values = np.arange(y_min, y_max + resolution, resolution)
-
+    x_values = np.arange(x_min, round(x_max + resolution, 15), resolution)
+    y_values = np.arange(y_min, round(y_max + resolution, 15), resolution)
     points = [(x, y, z_const) for x, y in product(x_values, y_values)]
 
     return points

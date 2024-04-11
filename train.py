@@ -1,5 +1,6 @@
 import argparse
 import os
+import pdb
 import random
 
 import numpy as np
@@ -27,9 +28,9 @@ def get_freer_gpu():
 
 
 def get_args():
-    parser = argparse.ArgumentParser(description='Train a GCN model for the Game of Life')
+    parser = argparse.ArgumentParser(description='Train a GCN model for the Game of Life',
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--device', type=str, default=f'cuda:{get_freer_gpu()}', help='Device to use for training')
-    parser.add_argument('--batch_size', type=int, default=32, help='Input batch size for training')
     parser.add_argument('--num_epochs', type=int, default=1000, help='Number of epochs to train for')
     parser.add_argument('--hidden_dim', type=int, default=200, help='Dimension of the hidden layer')
     parser.add_argument('--num_layers', type=int, default=8, help='Number of GCN layers')
@@ -39,7 +40,7 @@ def get_args():
     parser.add_argument('--run_name', type=str, default='try', help='name in wandb')
     parser.add_argument('--length_of_past', type=int, default=10,
                         help='How many past states to consider as node features')
-    # parser.add_argument('--use_pe', action='store_true', help='Whether to use pe or not')
+    parser.add_argument('--use_pe', action='store_true', help='Whether to use pe or not')
     # parser.add_argument('--history_for_pe', type=int, default=10,
     #                     help='number of timestamps to take for calculating the pe')
     parser.add_argument('--number_of_eigenvectors', type=int, default=20,
@@ -150,7 +151,7 @@ def run(
     return curves['train'][-1], curves['test'][-1]
 
 
-def before_pad_array(lst, length_of_past, fill_value=2, ):
+def before_pad_array(lst, length_of_past, fill_value=2):
     return np.concatenate([[fill_value] * (length_of_past - len(lst)), lst])
 
 
@@ -160,7 +161,7 @@ def calc_ds(df, length_of_past=1, use_pe=False, history_for_pe=10, number_of_eig
         file_name = (f'./data/{n}_past_{length_of_past}_use_pe_{use_pe}_history_for_pe_{history_for_pe}'
                      f'_number_of_eigenvectors_{number_of_eigenvectors}_offset_{offset}.pt')
     else:
-        file_name = f'./data/{n}_past_{length_of_past}_use_pe_{use_pe}_offset_{offset}.pt'
+        file_name = f'data/{n}_past_{length_of_past}_use_pe_{use_pe}_offset_{offset}.pt'
 
     if os.path.exists(file_name):
         print('ds already exist - training starts')
@@ -200,6 +201,10 @@ def calc_ds(df, length_of_past=1, use_pe=False, history_for_pe=10, number_of_eig
         edges = np.stack([current_df['a'].values, current_df['b'].values], axis=1)
         edges = np.concatenate([edges, edges[:, ::-1]])
         edge_index = torch.tensor(edges.transpose(), dtype=torch.long)
+        # adj = torch_geometric.utils.to_dense_adj(edge_index)
+        # number_of_neighbors, _ = torch.mode(adj.sum(dim=1)[0])  # might not work when bs is bigger then 1
+        # print(number_of_neighbors)
+        # pdb.set_trace()
 
         next_df = df[df.i == i + 1]
         states = np.concatenate([next_df['state_a'].values, next_df['state_b'].values])
@@ -238,19 +243,36 @@ class SumNeighborsFeatures(MessagePassing):
 
     def forward(self, x, edge_index):
         out = self.propagate(edge_index, x=x)
-        adj = torch_geometric.utils.to_dense_adj(edge_index)
         return out
 
 
-def run_baseline_on_data(data):
+def run_baseline_on_data(data, use_temporal_condition=True):
     summer = SumNeighborsFeatures()
+    adj = torch_geometric.utils.to_dense_adj(edge_index=data.edge_index)
     features_sum = summer(data.x, data.edge_index)
-    print('hey')
+    last_states_sums = features_sum[:, -1]
+    number_of_neighbors, _ = torch.mode(adj.sum(dim=1)[0])  # might not work when bs is bigger then 1
+    # pdb.set_trace()
+    # print(number_of_neighbors)
+    # pdb.set_trace()
+    lower_bound = torch.max(2 * number_of_neighbors / 8, torch.tensor(2))
+    upper_bound = torch.max(3 * number_of_neighbors / 8, torch.tensor(3))
+    gol_condition = ((last_states_sums >= lower_bound) & (last_states_sums <= upper_bound))
+    last_three_sum = data.x[:, -3:].sum(dim=1)
+    total_sum = data.x.sum(dim=1)
+    if use_temporal_condition:
+        critical_survival_condition = torch.where((last_three_sum == 3), 1, 0)
+        must_die = torch.where((total_sum == 11), 0, 1)
+        y_pred = (gol_condition | critical_survival_condition) & must_die
+    else:
+        y_pred = gol_condition
+    print('sum of data y', sum(data.y))
+    print('sum of y pred', sum(y_pred))
+    return f1_score(data.y, y_pred)
 
 
 if __name__ == '__main__':
     args = get_args()
-    args.use_pe = False
     NUMBER_OF_EIGENVECTORS = args.number_of_eigenvectors if args.use_pe else 0
     IN_DIM = args.length_of_past + NUMBER_OF_EIGENVECTORS
     USE_SCHEDULER = not args.dont_use_scheduler
@@ -260,19 +282,18 @@ if __name__ == '__main__':
     np.random.seed(args.seed)
 
     df = pd.read_csv(f'/home/ygalron/big-storage/notebooks/saved/data/{args.data_name}GoL.csv')
-    # wandb.init(project="PEStaticMPGoLSweep", name=args.run_name + f'_{args.data_name}', config=vars(args))
+    wandb.init(project="free_of_bugs", name=args.run_name + f'_{args.data_name}', config=vars(args))
 
     ds, f_name = calc_ds(df, length_of_past=args.length_of_past,
                          use_pe=args.use_pe, history_for_pe=args.length_of_past, n=args.data_name,
                          number_of_eigenvectors=NUMBER_OF_EIGENVECTORS, offset=args.offset)
 
-    random.shuffle(ds)
     train_size = int(len(ds) * args.train_portion)
     train_dataset = ds[:train_size]
     test_dataset = ds[train_size:]
 
-    train_loader = DataLoader(train_dataset, 1, shuffle=True)  # , 5 * args.batch_size
-    test_loader = DataLoader(test_dataset, 1, shuffle=True)
+    train_loader = DataLoader(train_dataset, 1, shuffle=False)
+    test_loader = DataLoader(test_dataset, 1, shuffle=False)
     model = DeepGraphConvNet(
         in_dim=IN_DIM,
         hidden_channels=args.hidden_dim,
