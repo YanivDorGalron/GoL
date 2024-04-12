@@ -6,7 +6,8 @@ import pandas as pd
 import torch
 import torch.optim as optim
 import torch_geometric.utils
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, recall_score, precision_score, accuracy_score
+from torch.nn import functional as F
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn import MessagePassing
@@ -28,14 +29,14 @@ def get_args():
     parser = argparse.ArgumentParser(description='Train a GCN model for the Game of Life',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--device', type=str, default=f'cuda:{get_freer_gpu()}', help='Device to use for training')
-    parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs to train for')
+    parser.add_argument('--num_epochs', type=int, default=1000, help='Number of epochs to train for')
     parser.add_argument('--hidden_dim', type=int, default=200, help='Dimension of the hidden layer')
     parser.add_argument('--num_layers', type=int, default=8, help='Number of GCN layers')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--seed', type=int, default=32, help='Random seed')
     parser.add_argument('--train_portion', type=float, default=0.8, help='Portion of data to use for training')
     parser.add_argument('--run_name', type=str, default='try', help='name in wandb')
-    parser.add_argument('--length_of_past', type=int, default=10,
+    parser.add_argument('--length_of_past', type=int, default=11,
                         help='How many past states to consider as node features')
     parser.add_argument('--use_pe', action='store_true', help='Whether to use pe or not')
     # parser.add_argument('--history_for_pe', type=int, default=10,
@@ -264,6 +265,7 @@ def run_baseline_on_data(data, use_temporal_condition=False):
 
 if __name__ == '__main__':
     args = get_args()
+    args.use_pe = False
     NUMBER_OF_EIGENVECTORS = args.number_of_eigenvectors if args.use_pe else 0
     IN_DIM = args.length_of_past + NUMBER_OF_EIGENVECTORS
     USE_SCHEDULER = not args.dont_use_scheduler
@@ -273,7 +275,7 @@ if __name__ == '__main__':
     np.random.seed(args.seed)
 
     df = pd.read_csv(f'/home/ygalron/big-storage/notebooks/saved/data/{args.data_name}-GoL.csv')
-    wandb.init(project="free_of_bugs", name=args.run_name + f'-{args.data_name}', config=vars(args))
+    wandb.init(project="oscillations-GoL-sweep", name=args.run_name + f'-{args.data_name}', config=vars(args))
 
     ds, f_name = calc_ds(df, length_of_past=args.length_of_past,
                          use_pe=args.use_pe, history_for_pe=args.length_of_past, n=args.data_name,
@@ -293,16 +295,16 @@ if __name__ == '__main__':
         num_layers=args.num_layers,
         num_conv_layers=args.num_conv_layers).to(args.device)
 
-    evaluate_baselines([train_loader, test_loader], ['train', 'test'])
-    # run(model, train_loader,
-    #     {"train": train_loader, "test": test_loader},
-    #     loss_fn=F.binary_cross_entropy,
-    #     metric_fn=[recall_score, precision_score, accuracy_score, f1_score, diversity],
-    #     metric_name=['recall', 'precision', 'accuracy', 'f1', 'diversity_pred'],
-    #     print_steps=False,
-    #     use_scheduler=USE_SCHEDULER,
-    #     weight_decay=args.weight_decay
-    #     )
-    # print('saving_checkpoint')
-    # torch.save({'model_state_dict': model.state_dict()}, f'./checkpoints/{args.run_name}_{args.data_name}.pt')
+    # evaluate_baselines([train_loader, test_loader], ['train', 'test'])
+    run(model, train_loader,
+        {"train": train_loader, "test": test_loader},
+        loss_fn=F.binary_cross_entropy,
+        metric_fn=[recall_score, precision_score, accuracy_score, f1_score, diversity],
+        metric_name=['recall', 'precision', 'accuracy', 'f1', 'diversity_pred'],
+        print_steps=False,
+        use_scheduler=USE_SCHEDULER,
+        weight_decay=args.weight_decay
+        )
+    print('saving_checkpoint')
+    torch.save({'model_state_dict': model.state_dict()}, f'./checkpoints/{args.run_name}_{args.data_name}.pt')
     wandb.finish()
