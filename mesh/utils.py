@@ -1,9 +1,11 @@
 import pdb
 import random
 import warnings
+from typing import List
 
 import networkx as nx
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 import plotly.graph_objs as go
 from sklearn.neighbors import NearestNeighbors
@@ -30,7 +32,7 @@ def get_efficient_eigenvectors(G, number_of_eigenvectors=20):
     return eigenvectors, eigenvalues
 
 
-def create_edge_df(graphs):
+def create_edge_df(graphs: List[nx.Graph]) -> pd.DataFrame:
     edge_list = []
     for i, graph in enumerate(graphs):
         for edge in graph.edges:
@@ -42,7 +44,7 @@ def create_edge_df(graphs):
     return df
 
 
-def create_graphs_from_df(df):
+def create_graphs_from_df(df: pd.DataFrame) -> List[nx.Graph]:
     graphs = []
     for i in tqdm(df['i'].unique()):
         graph = nx.Graph()
