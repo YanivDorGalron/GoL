@@ -74,8 +74,8 @@ def calc_ds(df, length_of_past=1, pe_option='none', history_for_pe=10, number_of
 
     if os.path.exists(file_name):
         print('ds already exist - training starts')
-        ds = torch.load(file_name)
-        return ds, file_name
+        # ds = torch.load(file_name)
+        # return ds, file_name
     else:
         print('ds doesnt exist:')
 
