@@ -18,6 +18,7 @@ def get_args():
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--device', type=str, default=f'cuda:{get_freer_gpu()}', help='Device to use for training')
     parser.add_argument('--num_epochs', type=int, default=1000, help='Number of epochs to train for')
+    parser.add_argument('--batch_size', type=int, default=1, help='Number of graph in a batch')
     parser.add_argument('--hidden_dim', type=int, default=200, help='Dimension of the hidden layer')
     parser.add_argument('--num_layers', type=int, default=8, help='Number of GCN layers')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
@@ -162,8 +163,8 @@ if __name__ == '__main__':
     train_dataset = ds[:train_size]
     test_dataset = ds[train_size:]
 
-    train_loader = DataLoader(train_dataset, 1, shuffle=False)
-    test_loader = DataLoader(test_dataset, 1, shuffle=False)
+    train_loader = DataLoader(train_dataset, args.batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, args.batch_size, shuffle=False)
     model = DeepGraphConvNet(
         in_dim=IN_DIM,
         hidden_channels=args.hidden_dim,

@@ -1,11 +1,13 @@
 import os
 import pdb
+from typing import List
 
 import numpy as np
 import pandas as pd
 import torch
 import torch_geometric
 from sklearn.metrics import f1_score
+from torch.utils.data import DataLoader
 from torch_geometric.data import Data
 from tqdm import tqdm
 
@@ -24,10 +26,11 @@ def diversity(y_true, y_pred):
     return y_pred.float().std().item()
 
 
-def evaluate_baselines(loaders, loaders_names):
+def evaluate_baselines(loaders: List[DataLoader], loaders_names: List[str]):
     log_dict = {}
     for _ in tqdm(range(100)):
         for loader, l_name in zip(loaders, loaders_names):
+            assert loader.batch_size == 1, 'baseline works only if each batch is a single graph'
             for data in loader:
                 value = run_baseline_on_data(data)
                 log_dict[f"{l_name}_f1"] = value
@@ -46,7 +49,7 @@ def run_baseline_on_data(data, use_temporal_condition=False):
     adj = torch_geometric.utils.to_dense_adj(edge_index=data.edge_index)[0]
     features_sum = summer(data.x, data.edge_index)
     last_neighbors_state_sum = features_sum[:, -1]
-    number_of_neighbors = adj.sum(dim=1)  # might not work when bs is bigger then 1
+    number_of_neighbors = adj.sum(dim=1)  # might not work when batch size is bigger then 1
     lower_bound = torch.max(2 * number_of_neighbors / 8, torch.tensor(2))
     upper_bound = torch.max(3 * number_of_neighbors / 8, torch.tensor(3))
     gol_condition = ((last_neighbors_state_sum >= lower_bound) & (last_neighbors_state_sum <= upper_bound))
