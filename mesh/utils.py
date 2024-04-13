@@ -32,6 +32,17 @@ def get_efficient_eigenvectors(G, number_of_eigenvectors=20):
     return eigenvectors, eigenvalues
 
 
+def get_eigenvectors_of_list_of_graphs(graphs: List[nx.Graph], number_of_eigenvectors: int = 20) -> np.array:
+    # output shape is N x T x number_of_eigenvectors
+    total_eigenvectors = None
+    for i, graph in enumerate(graphs):
+        eigenvectors, _ = get_efficient_eigenvectors(graph, number_of_eigenvectors)
+        if total_eigenvectors is None:
+            total_eigenvectors = np.zeros((eigenvectors.shape[0], len(graphs), number_of_eigenvectors))
+        total_eigenvectors[:, i, :] = eigenvectors
+    return total_eigenvectors
+
+
 def create_edge_df(graphs: List[nx.Graph]) -> pd.DataFrame:
     edge_list = []
     for i, graph in enumerate(graphs):
@@ -271,11 +282,14 @@ def update_grid(G, temporal, resource_stock, resource, max_age=100, critical_sur
     """
     next_state = {}
     nodes = list(G.nodes())
-    random.shuffle(nodes)
+    # random.shuffle(nodes)
+    nodes.sort()
+    counter = 0
     for node in nodes:
         live_neighbors = 0
         neighbors = list(G.neighbors(node))
         k = len(neighbors)
+        counter += k
         for neighbor in neighbors:
             if G.nodes[neighbor]['state'] == 1:
                 live_neighbors += 1
@@ -285,8 +299,7 @@ def update_grid(G, temporal, resource_stock, resource, max_age=100, critical_sur
         lower_bound = max(2 * k / 8, 2)
         upper_bound = max(3 * k / 8, 3)
         next_state[node] = 1 if lower_bound <= live_neighbors <= upper_bound else 0
-        # print('ts', ts, 'node', node, 'lower_bound', lower_bound, 'upper_bound', upper_bound, 'live_neighbors',
-        #       live_neighbors, 'number_of_neighbors', k)
+        gol_state = next_state[node]
 
         time_alive = G.nodes[node]['memory']
         if temporal:
@@ -295,6 +308,8 @@ def update_grid(G, temporal, resource_stock, resource, max_age=100, critical_sur
             elif time_alive > critical_survival_period:
                 next_state[node] = 1
 
+        print('ts', ts, 'node', node, 'lower_bound', lower_bound, 'upper_bound', upper_bound, 'live_neighbors',
+              live_neighbors, 'number_of_neighbors', k, 'gol_state', gol_state, 'temporal_state', next_state[node])
         # Resource dynamics
         if resource:
             if resource_stock > 0:
@@ -307,6 +322,7 @@ def update_grid(G, temporal, resource_stock, resource, max_age=100, critical_sur
 
     for node, state in next_state.items():
         G.nodes[node]['state'] = state
+    print('counter', counter)
     return resource_stock
 
 

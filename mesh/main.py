@@ -130,7 +130,7 @@ def get_points(points_type, obj_path=None, sample_size=None):
     return partial_v
 
 
-def past_dependent_GoL(points_type='grid', obj_path=None, seed=42, sz=2, steps=100, kmax=24, kmin=4, w=1,
+def past_dependent_GoL(points_type='grid', obj_path=None, seed=42, sz=2, steps=100, kmax=24, kmin=4, w=1, max_age=10,
                        sample_size=20, create_gif=True, save_df=False, use_resource=False, prefix='', red_nodes=None):
     # kmax = 25
     # kmin = 5
@@ -140,7 +140,8 @@ def past_dependent_GoL(points_type='grid', obj_path=None, seed=42, sz=2, steps=1
 
     # valid_k = [9, 13, 21, 25, 5]
     # k = np.random.choice(valid_k, size=len(partial_V))
-    k = np.array([random.randint(kmin, kmax) for _ in range(len(partial_V))])
+    k = np.random.randint(kmin, kmax + 1, len(partial_V))
+    # k = np.array([random.randint(kmin, kmax) for _ in range(len(partial_V))])
     indices = run_knn_once(partial_V, 30)
     G = create_graph_from_clouds(indices, partial_V, k=k)
 
@@ -149,20 +150,21 @@ def past_dependent_GoL(points_type='grid', obj_path=None, seed=42, sz=2, steps=1
     gif = GIF(verbose=False)
 
     fig = draw_cloud(G, partial_V, color, sz=sz)
-    gif.create_image(fig)  # create_gif image for gif
+    gif.create_image(fig)
     resource_stock = len(G.nodes) // 2  # 5000
-    # Run the game for a few steps and save each step as an image
     Graphs = [G.copy()]
     k_history = [k]
     for i in tqdm(range(steps)):
-        resource_stock = update_grid(G, temporal=True, resource=use_resource, resource_stock=resource_stock)
+        resource_stock = update_grid(G, temporal=True, resource=use_resource, resource_stock=resource_stock,
+                                     max_age=max_age, ts=i)
         resource_stock = resource_stock + round(len(G.nodes) // 5)
         color = [dict_colors[G.nodes[node]['state']] for node in sorted_nodes]
         fig = draw_cloud(G, partial_V, color, sz=sz)
 
         if len(k_history) < 2:
             # k = np.random.choice(valid_k, size=len(partial_V))
-            k = np.array([random.randint(kmin, kmax) for _ in range(len(partial_V))])
+            k = np.random.randint(kmin, kmax + 1, len(partial_V))
+            # k = np.array([random.randint(kmin, kmax) for _ in range(len(partial_V))])
         else:
             k_history = k_history[-2:]
             k = (kmin + (kmax - kmin) * (0.5 + np.sin(w * k_history[0] * k_history[1]) / 2)).astype(int)

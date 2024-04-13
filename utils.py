@@ -1,6 +1,5 @@
 import os
 import pdb
-from itertools import dropwhile
 
 import numpy as np
 import pandas as pd
@@ -13,7 +12,8 @@ from tqdm import tqdm
 import wandb
 from architecture.positional_encodings import PositionalEncoding
 from architecture.summer import SumNeighborsFeatures
-from mesh.utils import create_graphs_from_df, create_unified_graph, get_efficient_eigenvectors
+from mesh.utils import create_graphs_from_df, create_unified_graph, get_efficient_eigenvectors, \
+    get_eigenvectors_of_list_of_graphs
 
 
 def before_pad_array(lst, length_of_past, fill_value=2):
@@ -41,15 +41,15 @@ def get_freer_gpu():
     return 0  # np.argmin(memory_available)
 
 
-def run_baseline_on_data(data, use_temporal_condition=False):
+def run_baseline_on_data(data, use_temporal_condition=True):
     summer = SumNeighborsFeatures()
     adj = torch_geometric.utils.to_dense_adj(edge_index=data.edge_index)[0]
     features_sum = summer(data.x, data.edge_index)
-    last_states_sums = features_sum[:, -1]
+    last_neighbors_state_sum = features_sum[:, -1]
     number_of_neighbors = adj.sum(dim=1)  # might not work when bs is bigger then 1
     lower_bound = torch.max(2 * number_of_neighbors / 8, torch.tensor(2))
     upper_bound = torch.max(3 * number_of_neighbors / 8, torch.tensor(3))
-    gol_condition = ((last_states_sums >= lower_bound) & (last_states_sums <= upper_bound))
+    gol_condition = ((last_neighbors_state_sum >= lower_bound) & (last_neighbors_state_sum <= upper_bound))
     if use_temporal_condition:
         last_three_sum = data.x[:, -3:].sum(dim=1)
         total_sum = data.x.sum(dim=1)
@@ -58,6 +58,7 @@ def run_baseline_on_data(data, use_temporal_condition=False):
         y_pred = (gol_condition | critical_survival_condition) & must_die
     else:
         y_pred = gol_condition
+    pdb.set_trace()
     return f1_score(data.y, y_pred)
 
 
@@ -70,7 +71,7 @@ def calc_ds(df, length_of_past=1, pe_option='none', history_for_pe=10, number_of
         file_name = (f'./data/{n}_past_{length_of_past}_{pe_option}_pe_history_for_pe_{history_for_pe[pe_option]}'
                      f'_number_of_eigenvectors_{number_of_eigenvectors}_offset_{offset}.pt')
     else:
-        file_name = f'data/{n}_past_{length_of_past}_use_{pe_option}_pe__offset_{offset}.pt'
+        file_name = f'data/{n}_past_{length_of_past}_{pe_option}_pe_offset_{offset}.pt'
 
     if os.path.exists(file_name):
         print('ds already exist - training starts')
@@ -97,10 +98,14 @@ def calc_ds(df, length_of_past=1, pe_option='none', history_for_pe=10, number_of
                 partial_df = df.loc[(df.i > i - history_for_pe[pe_option] - offset) & (df.i <= i - offset)]
                 graphs = create_graphs_from_df(partial_df)
                 num_nodes = len(list(graphs[0].nodes()))
-                unified_graph = create_unified_graph(graphs)
-                pe_encodings, _ = get_efficient_eigenvectors(unified_graph, number_of_eigenvectors)
-                pe_encodings = pe_encodings.reshape(-1, num_nodes, number_of_eigenvectors)
-                pe_encodings = pe_encodings[-1]  # taking last layer pe
+                if pe_option == 'supra':
+                    unified_graph = create_unified_graph(graphs)
+                    pe_encodings, _ = get_efficient_eigenvectors(unified_graph, number_of_eigenvectors)
+                    pe_encodings = pe_encodings.reshape(-1, num_nodes, number_of_eigenvectors)
+                    pe_encodings = pe_encodings[-1]  # taking last layer pe
+                elif pe_option == 'regular':
+                    pe_encodings = get_eigenvectors_of_list_of_graphs(graphs, number_of_eigenvectors)
+                    pe_encodings = pe_encodings.reshape(num_nodes, -1)  # N x (T*number_of_eigenvectors)
 
         states = np.concatenate([prev_10_ts['state_a'].values, prev_10_ts['state_b'].values])
         nodes = np.concatenate([prev_10_ts['a'].values, prev_10_ts['b'].values])

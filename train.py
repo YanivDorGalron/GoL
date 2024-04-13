@@ -1,18 +1,15 @@
 import argparse
-import pdb
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.optim as optim
-from sklearn.metrics import f1_score, recall_score, precision_score, accuracy_score
-from torch.nn import functional as F
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
 import wandb
 from architecture.models import DeepGraphConvNet
-from utils import get_freer_gpu, calc_ds, diversity
+from utils import get_freer_gpu, calc_ds, evaluate_baselines
 
 
 def get_args():
@@ -153,7 +150,7 @@ if __name__ == '__main__':
     np.random.seed(args.seed)
 
     df = pd.read_csv(f'/home/ygalron/big-storage/notebooks/saved/data/{args.data_name}-GoL.csv')
-    wandb.init(project="temporal-pe-oscillations-GoL-sweep", name=args.run_name + f'-{args.data_name}',
+    wandb.init(project="play-ground", name=args.run_name + f'-{args.data_name}',
                config=vars(args))
 
     ds, f_name = calc_ds(df, length_of_past=args.length_of_past,
@@ -174,16 +171,16 @@ if __name__ == '__main__':
         num_layers=args.num_layers,
         num_conv_layers=args.num_conv_layers).to(args.device)
 
-    # evaluate_baselines([train_loader, test_loader], ['train', 'test'])
-    run(model, train_loader,
-        {"train": train_loader, "test": test_loader},
-        loss_fn=F.binary_cross_entropy,
-        metric_fn=[recall_score, precision_score, accuracy_score, f1_score, diversity],
-        metric_name=['recall', 'precision', 'accuracy', 'f1', 'diversity_pred'],
-        print_steps=False,
-        use_scheduler=USE_SCHEDULER,
-        weight_decay=args.weight_decay
-        )
-    print('saving_checkpoint')
-    torch.save({'model_state_dict': model.state_dict()}, f'./checkpoints/{args.run_name}_{args.data_name}.pt')
+    evaluate_baselines([train_loader, test_loader], ['train', 'test'])
+    # run(model, train_loader,
+    #     {"train": train_loader, "test": test_loader},
+    #     loss_fn=F.binary_cross_entropy,
+    #     metric_fn=[recall_score, precision_score, accuracy_score, f1_score, diversity],
+    #     metric_name=['recall', 'precision', 'accuracy', 'f1', 'diversity_pred'],
+    #     print_steps=False,
+    #     use_scheduler=USE_SCHEDULER,
+    #     weight_decay=args.weight_decay
+    #     )
+    # print('saving_checkpoint')
+    # torch.save({'model_state_dict': model.state_dict()}, f'./checkpoints/{args.run_name}_{args.data_name}.pt')
     wandb.finish()
