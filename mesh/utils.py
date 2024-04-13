@@ -294,7 +294,10 @@ def update_grid(G, temporal, resource_stock, resource, max_age=100, critical_sur
             if G.nodes[neighbor]['state'] == 1:
                 live_neighbors += 1
         if 'memory' not in G.nodes[node]:
-            G.nodes[node]['memory'] = 0
+            if G.nodes[node]['state'] == 1:
+                G.nodes[node]['memory'] = 1
+            else:
+                G.nodes[node]['memory'] = 0
 
         lower_bound = max(2 * k / 8, 2)
         upper_bound = max(3 * k / 8, 3)
@@ -309,7 +312,8 @@ def update_grid(G, temporal, resource_stock, resource, max_age=100, critical_sur
                 next_state[node] = 1
 
         print('ts', ts, 'node', node, 'lower_bound', lower_bound, 'upper_bound', upper_bound, 'live_neighbors',
-              live_neighbors, 'number_of_neighbors', k, 'gol_state', gol_state, 'temporal_state', next_state[node])
+              live_neighbors, 'number_of_neighbors', k, 'gol_state', gol_state, 'temporal_state', next_state[node],
+              'time_alive', time_alive)
         # Resource dynamics
         if resource:
             if resource_stock > 0:

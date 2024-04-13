@@ -41,7 +41,7 @@ def get_freer_gpu():
     return 0  # np.argmin(memory_available)
 
 
-def run_baseline_on_data(data, use_temporal_condition=True):
+def run_baseline_on_data(data, use_temporal_condition=False):
     summer = SumNeighborsFeatures()
     adj = torch_geometric.utils.to_dense_adj(edge_index=data.edge_index)[0]
     features_sum = summer(data.x, data.edge_index)
@@ -58,7 +58,6 @@ def run_baseline_on_data(data, use_temporal_condition=True):
         y_pred = (gol_condition | critical_survival_condition) & must_die
     else:
         y_pred = gol_condition
-    pdb.set_trace()
     return f1_score(data.y, y_pred)
 
 
@@ -75,8 +74,8 @@ def calc_ds(df, length_of_past=1, pe_option='none', history_for_pe=10, number_of
 
     if os.path.exists(file_name):
         print('ds already exist - training starts')
-        # ds = torch.load(file_name)
-        # return ds, file_name
+        ds = torch.load(file_name)
+        return ds, file_name
     else:
         print('ds doesnt exist:')
 

@@ -86,7 +86,7 @@ def create_and_color_graph(indices, partial_V, initial_k, red_nodes):
     return G, color, sorted_nodes
 
 
-def color_graph(G, partial_V, red_nodes):
+def color_graph(G, partial_V, red_nodes, live_percentage=0.05):
     color = ['gray'] * len(partial_V)
     sorted_nodes = list(G.nodes())
     sorted_nodes.sort()
@@ -96,7 +96,7 @@ def color_graph(G, partial_V, red_nodes):
             if node in red_nodes:
                 G.nodes[node]['state'] = 1
         else:
-            G.nodes[node]['state'] = np.random.choice([0, 1], p=[0.95, 0.05])
+            G.nodes[node]['state'] = np.random.choice([0, 1], p=[1 - live_percentage, live_percentage])
 
         color[node] = dict_colors[G.nodes[node]['state']]
     return color, sorted_nodes
@@ -131,21 +131,17 @@ def get_points(points_type, obj_path=None, sample_size=None):
 
 
 def past_dependent_GoL(points_type='grid', obj_path=None, seed=42, sz=2, steps=100, kmax=24, kmin=4, w=1, max_age=10,
-                       sample_size=20, create_gif=True, save_df=False, use_resource=False, prefix='', red_nodes=None):
-    # kmax = 25
-    # kmin = 5
+                       critical_survival_period=2, sample_size=20, create_gif=True, save_df=False, use_resource=False,
+                       prefix='', red_nodes=None,live_percentage=0.05):
     name = f'{prefix}_past_dependent_GoL_seed_{seed}_steps_{steps}_kmax_{kmax}_kmin_{kmin}_w_{w}_use_resource_{use_resource}'
     np.random.seed(seed)
     partial_V = get_points(points_type, obj_path, sample_size)
 
-    # valid_k = [9, 13, 21, 25, 5]
-    # k = np.random.choice(valid_k, size=len(partial_V))
     k = np.random.randint(kmin, kmax + 1, len(partial_V))
-    # k = np.array([random.randint(kmin, kmax) for _ in range(len(partial_V))])
-    indices = run_knn_once(partial_V, 30)
+    indices = run_knn_once(partial_V, 40)
     G = create_graph_from_clouds(indices, partial_V, k=k)
 
-    color, sorted_nodes = color_graph(G, partial_V, red_nodes)
+    color, sorted_nodes = color_graph(G, partial_V, red_nodes,live_percentage=live_percentage)
 
     gif = GIF(verbose=False)
 
@@ -156,15 +152,13 @@ def past_dependent_GoL(points_type='grid', obj_path=None, seed=42, sz=2, steps=1
     k_history = [k]
     for i in tqdm(range(steps)):
         resource_stock = update_grid(G, temporal=True, resource=use_resource, resource_stock=resource_stock,
-                                     max_age=max_age, ts=i)
+                                     max_age=max_age, critical_survival_period=critical_survival_period, ts=i)
         resource_stock = resource_stock + round(len(G.nodes) // 5)
         color = [dict_colors[G.nodes[node]['state']] for node in sorted_nodes]
         fig = draw_cloud(G, partial_V, color, sz=sz)
 
         if len(k_history) < 2:
-            # k = np.random.choice(valid_k, size=len(partial_V))
             k = np.random.randint(kmin, kmax + 1, len(partial_V))
-            # k = np.array([random.randint(kmin, kmax) for _ in range(len(partial_V))])
         else:
             k_history = k_history[-2:]
             k = (kmin + (kmax - kmin) * (0.5 + np.sin(w * k_history[0] * k_history[1]) / 2)).astype(int)
