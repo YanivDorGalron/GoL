@@ -41,7 +41,7 @@ def get_freer_gpu():
     os.system('nvidia-smi -q -d Memory |grep -A4 GPU|grep Used >tmp')
     memory_available = [int(x.split()[2]) for x in open('tmp', 'r').readlines()]
     os.remove('tmp')
-    return 0  # np.argmin(memory_available)
+    return np.argmin(memory_available)
 
 
 def run_baseline_on_data(data, use_temporal_condition=False):

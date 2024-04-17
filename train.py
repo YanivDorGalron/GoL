@@ -1,14 +1,18 @@
-import argparse
+#!/usr/bin/env python
+# PYTHON_ARGCOMPLETE_OK
 
-import numpy as np
+import argparse
 import pandas as pd
 import torch
+import torch_geometric
 from torch.nn import functional as F
 import torch.optim as optim
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 from sklearn.metrics import recall_score, precision_score, accuracy_score, f1_score
+import argcomplete
 import wandb
+import os
 from architecture.models import DeepGraphConvNet
 from utils import get_freer_gpu, calc_ds, evaluate_baselines, diversity
 
@@ -25,6 +29,7 @@ def get_args():
     parser.add_argument('--seed', type=int, default=32, help='Random seed')
     parser.add_argument('--train_portion', type=float, default=0.8, help='Portion of data to use for training')
     parser.add_argument('--run_name', type=str, default='try', help='name in wandb')
+    parser.add_argument('--use_activation', type=bool, default=True, help='whether to use non linearity in conv layers')
     parser.add_argument('--length_of_past', type=int, default=11,
                         help='How many past states to consider as node features')
     parser.add_argument('--pe_option', type=str, choices=['supra', 'temporal', 'regular', 'none'], default='none',
@@ -42,6 +47,7 @@ def get_args():
                         choices=['regular', 'temporal', 'oscillations', 'past-dependent', 'static-oscillations'],
                         default='regular', help='path to dataset')
 
+    argcomplete.autocomplete(parser)
     args = parser.parse_args()
     return args
 
@@ -96,7 +102,7 @@ def run(
 ):
     """Train the model for NUM_EPOCHS epochs and run n times"""
     # Instantiate optimiser and scheduler
-    optimiser = optim.Adam(model.parameters(), lr=args.lr, weight_decay=weight_decay)
+    optimiser = optim.Adam(model.parameters(), lr=args.lr, weight_decay=weight_decay)  # ,amsgrad=True)
     scheduler = (
         optim.lr_scheduler.StepLR(optimiser, step_size=STEP_SIZE, gamma=GAMMA)
         if use_scheduler
@@ -148,12 +154,15 @@ if __name__ == '__main__':
     USE_SCHEDULER = not args.dont_use_scheduler
     STEP_SIZE = 50
     GAMMA = 0.5
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
+    os.environ['PYTHONHASHSEED'] = str(args.seed)
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    torch_geometric.seed_everything(args.seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.use_deterministic_algorithms(True)
 
     df = pd.read_csv(f'/home/ygalron/big-storage/notebooks/saved/data/{args.data_name}-GoL.csv')
-    wandb.init(project="play-ground", name=args.run_name + f'-{args.data_name}',
-               config=vars(args))
+    wandb.init(project="play-ground", name=args.run_name + f'-{args.data_name}', config=vars(args))
 
     ds, f_name = calc_ds(df, length_of_past=args.length_of_past,
                          pe_option=args.pe_option, history_for_pe=args.length_of_past, n=args.data_name,
@@ -171,7 +180,8 @@ if __name__ == '__main__':
         conv_hidden_dim=args.conv_hidden_dim,
         out_dim=1,
         num_layers=args.num_layers,
-        num_conv_layers=args.num_conv_layers).to(args.device)
+        num_conv_layers=args.num_conv_layers,
+        use_activation=args.use_activation).to(args.device)
 
     # evaluate_baselines([train_loader, test_loader], ['train', 'test'])
     run(model, train_loader,

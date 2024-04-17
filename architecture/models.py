@@ -31,13 +31,16 @@ class GraphConvNet(torch.nn.Module):
 
 
 class DeepGraphConvNet(torch.nn.Module):
-    def __init__(self, in_dim, hidden_channels, conv_hidden_dim, out_dim, num_layers, num_conv_layers):
+    def __init__(self, in_dim, hidden_channels, conv_hidden_dim, out_dim, num_layers, num_conv_layers, use_activation):
         super().__init__()
         self.convs = nn.Sequential(
             GraphConv(in_dim, conv_hidden_dim),
             *[GraphConv(conv_hidden_dim, conv_hidden_dim) for _ in range(num_conv_layers - 1)]
         )
+        for conv in self.convs:
+            conv.reset_parameters()
         self.linear_layer = MLP(conv_hidden_dim, hidden_channels, out_dim, num_layers=num_layers)
+        self.activation = nn.LeakyReLU() if use_activation else nn.Identity()
 
     def forward(self, x, edge_index):
         for conv in self.convs:
