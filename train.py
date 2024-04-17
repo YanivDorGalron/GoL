@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 # PYTHON_ARGCOMPLETE_OK
 
-import argparse
+from parse_args import get_args
+
+args = get_args()
 import pandas as pd
 import torch
 import torch_geometric
@@ -10,46 +12,10 @@ import torch.optim as optim
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 from sklearn.metrics import recall_score, precision_score, accuracy_score, f1_score
-import argcomplete
 import wandb
 import os
 from architecture.models import DeepGraphConvNet
-from utils import get_freer_gpu, calc_ds, evaluate_baselines, diversity
-
-
-def get_args():
-    parser = argparse.ArgumentParser(description='Train a GCN model for the Game of Life',
-                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--device', type=str, default=f'cuda:{get_freer_gpu()}', help='Device to use for training')
-    parser.add_argument('--num_epochs', type=int, default=1000, help='Number of epochs to train for')
-    parser.add_argument('--batch_size', type=int, default=1, help='Number of graph in a batch')
-    parser.add_argument('--hidden_dim', type=int, default=200, help='Dimension of the hidden layer')
-    parser.add_argument('--num_layers', type=int, default=8, help='Number of GCN layers')
-    parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--seed', type=int, default=32, help='Random seed')
-    parser.add_argument('--train_portion', type=float, default=0.8, help='Portion of data to use for training')
-    parser.add_argument('--run_name', type=str, default='try', help='name in wandb')
-    parser.add_argument('--use_activation', type=bool, default=True, help='whether to use non linearity in conv layers')
-    parser.add_argument('--length_of_past', type=int, default=11,
-                        help='How many past states to consider as node features')
-    parser.add_argument('--pe_option', type=str, choices=['supra', 'temporal', 'regular', 'none'], default='none',
-                        help='pe type to use, if none will not be used')
-    # parser.add_argument('--history_for_pe', type=int, default=10,
-    #                     help='number of timestamps to take for calculating the pe')
-    parser.add_argument('--number_of_eigenvectors', type=int, default=20,
-                        help='number of eigen vector to use for the pe')
-    parser.add_argument('--offset', type=int, default=0, help='the offset in time for taking information')
-    parser.add_argument('--num_conv_layers', type=int, default=1, help='number of conv layers')
-    parser.add_argument('--conv_hidden_dim', type=int, default=1, help='conv layers hidden dimension')
-    parser.add_argument('--dont_use_scheduler', action='store_true', help='whether to use scheduler')
-    parser.add_argument('--weight_decay', type=float, default=0.0, help='weight decay for adam optimizer')
-    parser.add_argument('--data_name', type=str,
-                        choices=['regular', 'temporal', 'oscillations', 'past-dependent', 'static-oscillations'],
-                        default='regular', help='path to dataset')
-
-    argcomplete.autocomplete(parser)
-    args = parser.parse_args()
-    return args
+from utils import calc_ds, diversity
 
 
 def train(train_loader, model, optimiser, loss_fn, metric_fn):
@@ -146,7 +112,7 @@ def run(
 
 
 if __name__ == '__main__':
-    args = get_args()
+
     NUMBER_OF_EIGENVECTORS = args.number_of_eigenvectors if args.pe_option != 'none' else 0
     IN_DIM = args.length_of_past + NUMBER_OF_EIGENVECTORS
     if args.pe_option == 'temporal':

@@ -37,12 +37,6 @@ def evaluate_baselines(loaders: List[DataLoader], loaders_names: List[str]):
         wandb.log(log_dict)
 
 
-def get_freer_gpu():
-    os.system('nvidia-smi -q -d Memory |grep -A4 GPU|grep Used >tmp')
-    memory_available = [int(x.split()[2]) for x in open('tmp', 'r').readlines()]
-    os.remove('tmp')
-    return np.argmin(memory_available)
-
 
 def run_baseline_on_data(data, use_temporal_condition=False):
     summer = SumNeighborsFeatures()
