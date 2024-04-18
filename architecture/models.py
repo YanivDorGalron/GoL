@@ -40,7 +40,28 @@ class DeepGraphConvNet(torch.nn.Module):
         for conv in self.convs:
             conv.reset_parameters()
         self.linear_layer = MLP(conv_hidden_dim, hidden_channels, out_dim, num_layers=num_layers)
-        self.activation = nn.LeakyReLU() if use_activation else nn.Identity()
+        self.activation = nn.ReLU() if use_activation else nn.Identity()
+
+    def forward(self, x, edge_index):
+        for conv in self.convs:
+            x = conv(x, edge_index)
+        x = self.linear_layer(x).sigmoid()
+        return x
+
+
+class DeepGINConvNet(torch.nn.Module):
+    def __init__(self, in_dim, hidden_channels, conv_hidden_dim, out_dim, num_layers, num_conv_layers, use_activation,
+                 aggr='mean'):
+        super().__init__()
+        self.convs = nn.Sequential(
+            GINConv(MLP(in_dim, conv_hidden_dim, conv_hidden_dim, num_layers=2), aggr=aggr),
+            *[GINConv(MLP(conv_hidden_dim, conv_hidden_dim, conv_hidden_dim, num_layers=2), aggr=aggr) for _ in
+              range(num_conv_layers - 1)]
+        )
+        for conv in self.convs:
+            conv.reset_parameters()
+        self.linear_layer = MLP(conv_hidden_dim, hidden_channels, out_dim, num_layers=num_layers)
+        self.activation = nn.ReLU() if use_activation else nn.Identity()
 
     def forward(self, x, edge_index):
         for conv in self.convs:

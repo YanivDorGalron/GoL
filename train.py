@@ -14,7 +14,7 @@ from tqdm import tqdm
 from sklearn.metrics import recall_score, precision_score, accuracy_score, f1_score
 import wandb
 import os
-from architecture.models import DeepGraphConvNet
+from architecture.models import DeepGraphConvNet, DeepGINConvNet
 from utils import calc_ds, diversity
 
 
@@ -140,7 +140,7 @@ if __name__ == '__main__':
 
     train_loader = DataLoader(train_dataset, args.batch_size, shuffle=False)
     test_loader = DataLoader(test_dataset, args.batch_size, shuffle=False)
-    model = DeepGraphConvNet(
+    model = DeepGINConvNet(
         in_dim=IN_DIM,
         hidden_channels=args.hidden_dim,
         conv_hidden_dim=args.conv_hidden_dim,

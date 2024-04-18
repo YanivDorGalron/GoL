@@ -11,7 +11,7 @@ class MLP(nn.Module):
         layer_list.append(torch.nn.Linear(in_dim, emb_dim))
         for _ in range(num_layers - 1):
             layer_list.append(torch.nn.BatchNorm1d(emb_dim))
-            layer_list.append(torch.nn.LeakyReLU())
+            layer_list.append(torch.nn.ReLU())
             l = torch.nn.Linear(emb_dim, emb_dim)
             l.reset_parameters()
             layer_list.append(l)
