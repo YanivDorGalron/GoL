@@ -70,18 +70,12 @@ def run(
     """Train the model for NUM_EPOCHS epochs and run n times"""
     # Instantiate optimiser and scheduler
     optimiser = optim.Adam(model.parameters(), lr=args.lr, weight_decay=weight_decay)  # ,amsgrad=True)
-    # scheduler = (
-    #     optim.lr_scheduler.StepLR(optimiser, step_size=STEP_SIZE, gamma=GAMMA)
-    #     if use_scheduler
-    #     else None
-    # )
-    T_MAX = 500
-    ETA_MIN = 1e-9
     scheduler = (
-        CosineAnnealingLR(optimiser, T_max=T_MAX, eta_min=ETA_MIN)
+        optim.lr_scheduler.StepLR(optimiser, step_size=STEP_SIZE, gamma=GAMMA)
         if use_scheduler
         else None
     )
+
     curves = {name: [] for name in loaders.keys()}
 
     best_metric = -float('inf')
