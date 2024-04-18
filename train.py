@@ -15,7 +15,7 @@ from sklearn.metrics import recall_score, precision_score, accuracy_score, f1_sc
 import wandb
 import os
 from architecture.models import DeepGraphConvNet, DeepGINConvNet
-from utils import calc_ds, diversity
+from utils import calc_ds, diversity, evaluate_baselines
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 
