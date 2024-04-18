@@ -16,6 +16,7 @@ import wandb
 import os
 from architecture.models import DeepGraphConvNet, DeepGINConvNet
 from utils import calc_ds, diversity
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 
 def train(train_loader, model, optimiser, loss_fn, metric_fn):
@@ -63,14 +64,21 @@ def run(
         use_scheduler=False,
         print_steps=True,
         weight_decay=0,
-        patience=151,
+        patience=351,
         early_stopping_metric='test_f1',
 ):
     """Train the model for NUM_EPOCHS epochs and run n times"""
     # Instantiate optimiser and scheduler
     optimiser = optim.Adam(model.parameters(), lr=args.lr, weight_decay=weight_decay)  # ,amsgrad=True)
+    # scheduler = (
+    #     optim.lr_scheduler.StepLR(optimiser, step_size=STEP_SIZE, gamma=GAMMA)
+    #     if use_scheduler
+    #     else None
+    # )
+    T_MAX = 500
+    ETA_MIN = 1e-9
     scheduler = (
-        optim.lr_scheduler.StepLR(optimiser, step_size=STEP_SIZE, gamma=GAMMA)
+        CosineAnnealingLR(optimiser, T_max=T_MAX, eta_min=ETA_MIN)
         if use_scheduler
         else None
     )
