@@ -64,7 +64,7 @@ def run(
         use_scheduler=False,
         print_steps=True,
         weight_decay=0,
-        patience=351,
+        patience=151,
         early_stopping_metric='test_f1',
 ):
     """Train the model for NUM_EPOCHS epochs and run n times"""
