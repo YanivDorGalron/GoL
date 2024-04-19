@@ -36,9 +36,11 @@ def train(train_loader, model, optimiser, loss_fn, metric_fn):
     return total_loss / num_graphs
 
 
-def evaluate(loader, model, metric_fn):
+def evaluate(loader, model, metric_fn, loss_fn=F.binary_cross_entropy):
     """Evaluate model on dataset"""
     y_pred, y_true = [], []
+    total_loss = 0
+    num_graphs = 0
     model.eval()
     for data in loader:
         data = data.to(args.device)
@@ -47,10 +49,16 @@ def evaluate(loader, model, metric_fn):
         y_pred.append(y_hat.detach().cpu())
         y_true.append(data.y.detach().cpu())
 
+        loss = loss_fn(y_hat[:,0], data.y.to(torch.float32))
+        total_loss += loss.item() * len(data.y)
+        num_graphs += len(data.y)
+
     y_pred = torch.cat(y_pred, dim=0)
     y_pred = y_pred[:, 0]
     y_pred = (y_pred > 0.5).long()
     y_true = torch.cat(y_true, dim=0)
+
+    wandb.log({'test_loss': total_loss / num_graphs})
     return [metric(y_true, y_pred) for metric in metric_fn]
 
 
@@ -87,7 +95,7 @@ def run(
         if scheduler is not None:
             scheduler.step()
         for name, loader in loaders.items():
-            curves[name].append(evaluate(loader, model, metric_fn))
+            curves[name].append(evaluate(loader, model, metric_fn, loss_fn))
         if print_steps:
             print_str = f"Epoch {epoch}, train loss: {train_loss:.6f}"
             for name, metric in curves.items():
@@ -132,12 +140,19 @@ if __name__ == '__main__':
                          pe_option=args.pe_option, history_for_pe=args.length_of_past, n=args.data_name,
                          number_of_eigenvectors=NUMBER_OF_EIGENVECTORS, offset=args.offset)
 
+    # push all values of ds to the device
+    print('pushing all values to device')
+    for i in range(len(ds)):
+        ds[i].x = ds[i].x.to(args.device)
+        ds[i].edge_index = ds[i].edge_index.to(args.device)
+        ds[i].y = ds[i].y.to(args.device)
+
     train_size = int(len(ds) * args.train_portion)
     train_dataset = ds[:train_size]
     test_dataset = ds[train_size:]
 
-    train_loader = DataLoader(train_dataset, args.batch_size, shuffle=False)
-    test_loader = DataLoader(test_dataset, args.batch_size, shuffle=False)
+    train_loader = DataLoader(train_dataset, args.batch_size, shuffle=args.shuffle)
+    test_loader = DataLoader(test_dataset, args.batch_size, shuffle=args.shuffle)
     model = DeepDividedGINConvNet(
         in_dim=IN_DIM,
         hidden_channels=args.hidden_dim,
