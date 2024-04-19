@@ -37,7 +37,6 @@ def evaluate_baselines(loaders: List[DataLoader], loaders_names: List[str]):
         wandb.log(log_dict)
 
 
-
 def run_baseline_on_data(data, use_temporal_condition=False):
     summer = SumNeighborsFeatures()
     adj = torch_geometric.utils.to_dense_adj(edge_index=data.edge_index)[0]
@@ -135,3 +134,13 @@ def calc_ds(df, length_of_past=1, pe_option='none', history_for_pe=10, number_of
     print('finished preparing data')
     torch.save(ds, file_name)
     return ds, file_name
+
+
+def seed_all(seed, on_steroids=False):
+    if on_steroids:
+        os.environ['PYTHONHASHSEED'] = str(seed)
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        torch.use_deterministic_algorithms(True)
+    torch_geometric.seed_everything(seed)

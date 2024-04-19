@@ -14,8 +14,8 @@ from tqdm import tqdm
 from sklearn.metrics import recall_score, precision_score, accuracy_score, f1_score
 import wandb
 import os
-from architecture.models import DeepGraphConvNet, DeepGINConvNet
-from utils import calc_ds, diversity, evaluate_baselines
+from architecture.models import DeepGraphConvNet, DeepGINConvNet, DeepDividedGINConvNet
+from utils import calc_ds, diversity, evaluate_baselines, seed_all
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 
@@ -122,12 +122,8 @@ if __name__ == '__main__':
     USE_SCHEDULER = not args.dont_use_scheduler
     STEP_SIZE = 50
     GAMMA = 0.5
-    os.environ['PYTHONHASHSEED'] = str(args.seed)
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-    torch_geometric.seed_everything(args.seed)
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
-    torch.use_deterministic_algorithms(True)
+
+    seed_all(args.seed, on_steroids=False)
 
     df = pd.read_csv(f'/home/ygalron/big-storage/notebooks/saved/data/{args.data_name}-GoL.csv')
     wandb.init(project="play-ground", name=args.run_name + f'-{args.data_name}', config=vars(args))
@@ -142,7 +138,7 @@ if __name__ == '__main__':
 
     train_loader = DataLoader(train_dataset, args.batch_size, shuffle=False)
     test_loader = DataLoader(test_dataset, args.batch_size, shuffle=False)
-    model = DeepGINConvNet(
+    model = DeepDividedGINConvNet(
         in_dim=IN_DIM,
         hidden_channels=args.hidden_dim,
         conv_hidden_dim=args.conv_hidden_dim,
