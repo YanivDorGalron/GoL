@@ -39,8 +39,9 @@ def space_invariant_GoL(points_type='obj', obj_path=None, seed=42, sz=2, steps=1
                         w=0.1, temporal=True,
                         sample_size=20, oscilations=True, create_gif=True, critical_survival_period=2,
                         max_age=10, save_df=False, use_resource=False, length=500, prefix='', red_nodes=None):
-    valid_k = [9, 13, 21, 25, 5]
-    initial_k = valid_k[0]
+    valid_k = [5, 9, 13, 21, 25, 21, 13, 9]
+    initial_k = valid_k[1]
+    print(initial_k)
     name = f'{prefix}_space_invariant_GoL_seed_{seed}_initial_k_{initial_k}_steps_{steps}_k_delta_{k_delta}_kmin_{kmin}_w_{w}_oscilations_{oscilations}'
     np.random.seed(seed)
     partial_V = get_points(points_type, obj_path, sample_size)
@@ -63,7 +64,9 @@ def space_invariant_GoL(points_type='obj', obj_path=None, seed=42, sz=2, steps=1
         fig = draw_cloud(G, partial_V, color, sz=sz, title=f'index: {i}')
 
         if oscilations:
-            k = valid_k[(i + 1) % len(valid_k)]
+            k = valid_k[(i + 2) % len(valid_k)]
+            print(k)
+
             # k = round(k_delta * (np.sin(i * w) + 1) / 2 + kmin) - round(k_delta / 2 + kmin - initial_k)
             G1 = create_graph_from_clouds(indices=indices, points=partial_V, k=k)
             G = transfer_att_from_graph(G, G1)
@@ -132,7 +135,7 @@ def get_points(points_type, obj_path=None, sample_size=None):
 
 def past_dependent_GoL(points_type='grid', obj_path=None, seed=42, sz=2, steps=100, kmax=24, kmin=4, w=1, max_age=10,
                        critical_survival_period=2, sample_size=20, create_gif=True, save_df=False, use_resource=False,
-                       prefix='', red_nodes=None,live_percentage=0.05):
+                       prefix='', red_nodes=None, live_percentage=0.05):
     name = f'{prefix}_past_dependent_GoL_seed_{seed}_steps_{steps}_kmax_{kmax}_kmin_{kmin}_w_{w}_use_resource_{use_resource}'
     np.random.seed(seed)
     partial_V = get_points(points_type, obj_path, sample_size)
@@ -141,7 +144,7 @@ def past_dependent_GoL(points_type='grid', obj_path=None, seed=42, sz=2, steps=1
     indices = run_knn_once(partial_V, 40)
     G = create_graph_from_clouds(indices, partial_V, k=k)
 
-    color, sorted_nodes = color_graph(G, partial_V, red_nodes,live_percentage=live_percentage)
+    color, sorted_nodes = color_graph(G, partial_V, red_nodes, live_percentage=live_percentage)
 
     gif = GIF(verbose=False)
 

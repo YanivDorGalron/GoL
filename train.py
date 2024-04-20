@@ -49,7 +49,7 @@ def evaluate(loader, model, metric_fn, loss_fn=F.binary_cross_entropy):
         y_pred.append(y_hat.detach().cpu())
         y_true.append(data.y.detach().cpu())
 
-        loss = loss_fn(y_hat[:,0], data.y.to(torch.float32))
+        loss = loss_fn(y_hat[:, 0], data.y.to(torch.float32))
         total_loss += loss.item() * len(data.y)
         num_graphs += len(data.y)
 
@@ -77,7 +77,7 @@ def run(
 ):
     """Train the model for NUM_EPOCHS epochs and run n times"""
     # Instantiate optimiser and scheduler
-    optimiser = optim.Adam(model.parameters(), lr=args.lr, weight_decay=weight_decay)  # ,amsgrad=True)
+    optimiser = optim.Adam(model.parameters(), lr=args.lr, weight_decay=weight_decay, amsgrad=True)
     scheduler = (
         optim.lr_scheduler.StepLR(optimiser, step_size=STEP_SIZE, gamma=GAMMA)
         if use_scheduler
@@ -134,18 +134,19 @@ if __name__ == '__main__':
     seed_all(args.seed, on_steroids=False)
 
     df = pd.read_csv(f'/home/ygalron/big-storage/notebooks/saved/data/{args.data_name}-GoL.csv')
-    wandb.init(project="play-ground", name=args.run_name + f'-{args.data_name}', config=vars(args))
+    wandb.init(project="5-offset", name=args.run_name + f'-{args.data_name}', config=vars(args))
 
     ds, f_name = calc_ds(df, length_of_past=args.length_of_past,
                          pe_option=args.pe_option, history_for_pe=args.length_of_past, n=args.data_name,
                          number_of_eigenvectors=NUMBER_OF_EIGENVECTORS, offset=args.offset)
 
     # push all values of ds to the device
-    print('pushing all values to device')
-    for i in range(len(ds)):
-        ds[i].x = ds[i].x.to(args.device)
-        ds[i].edge_index = ds[i].edge_index.to(args.device)
-        ds[i].y = ds[i].y.to(args.device)
+    if args.push_all_values_to_device:
+        print('pushing all values to device')
+        for i in range(len(ds)):
+            ds[i].x = ds[i].x.to(args.device)
+            ds[i].edge_index = ds[i].edge_index.to(args.device)
+            ds[i].y = ds[i].y.to(args.device)
 
     train_size = int(len(ds) * args.train_portion)
     train_dataset = ds[:train_size]

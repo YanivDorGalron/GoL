@@ -25,6 +25,7 @@ def get_args():
     parser.add_argument('--run_name', type=str, default='try', help='name in wandb')
     parser.add_argument('--use_activation', type=bool, default=True, help='whether to use non linearity in conv layers')
     parser.add_argument('--shuffle', type=bool, default=True, help='whether to shuffle when data loading')
+    parser.add_argument('--ams_grad', type=bool, default=True, help='optimizer parameter')
     parser.add_argument('--length_of_past', type=int, default=11,
                         help='How many past states to consider as node features')
     parser.add_argument('--pe_option', type=str, choices=['supra', 'temporal', 'regular', 'none'], default='none',
@@ -41,6 +42,8 @@ def get_args():
     parser.add_argument('--data_name', type=str,
                         choices=['regular', 'temporal', 'oscillations', 'past-dependent', 'static-oscillations'],
                         default='regular', help='path to dataset')
+    parser.add_argument('--push_all_values_to_device', type=bool, default=True,
+                        help='whether to push all values to device')
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
