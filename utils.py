@@ -26,18 +26,20 @@ def diversity(y_true, y_pred):
     return y_pred.float().std().item()
 
 
-def evaluate_baselines(loaders: List[DataLoader], loaders_names: List[str]):
+def evaluate_baselines(loaders: List[DataLoader], loaders_names: List[str], offset: int):
     log_dict = {}
     for _ in tqdm(range(100)):
         for loader, l_name in zip(loaders, loaders_names):
             assert loader.batch_size == 1, 'baseline works only if each batch is a single graph'
             for data in loader:
-                value = run_baseline_on_data(data)
+                modified_data = data
+                for _ in range(1 + offset):
+                    value, modified_data = run_baseline_on_data(modified_data)
                 log_dict[f"{l_name}_f1"] = value
         wandb.log(log_dict)
 
 
-def run_baseline_on_data(data, use_temporal_condition=False):
+def run_baseline_on_data(data, use_temporal_condition=True):
     summer = SumNeighborsFeatures()
     adj = torch_geometric.utils.to_dense_adj(edge_index=data.edge_index)[0]
     features_sum = summer(data.x, data.edge_index)
@@ -54,7 +56,8 @@ def run_baseline_on_data(data, use_temporal_condition=False):
         y_pred = (gol_condition | critical_survival_condition) & must_die
     else:
         y_pred = gol_condition
-    return f1_score(data.y, y_pred)
+    data.x = torch.concatenate([data.x, y_pred[:, None]], dim=-1)[:, -11:]
+    return f1_score(data.y.cpu(), y_pred.cpu()), data
 
 
 def calc_ds(df, length_of_past=1, pe_option='none', history_for_pe=10, number_of_eigenvectors=20,

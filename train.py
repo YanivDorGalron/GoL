@@ -30,6 +30,7 @@ def train(train_loader, model, optimiser, loss_fn, metric_fn):
         y_hat = model(data.x, data.edge_index)[:, 0]
         loss = loss_fn(y_hat, data.y.to(torch.float32))
         loss.backward()
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1)
         optimiser.step()
         total_loss += loss.item() * len(data.y)
         num_graphs += len(data.y)
@@ -58,8 +59,7 @@ def evaluate(loader, model, metric_fn, loss_fn=F.binary_cross_entropy):
     y_pred = (y_pred > 0.5).long()
     y_true = torch.cat(y_true, dim=0)
 
-    wandb.log({'test_loss': total_loss / num_graphs})
-    return [metric(y_true, y_pred) for metric in metric_fn]
+    return [metric(y_true, y_pred) for metric in metric_fn], total_loss / num_graphs
 
 
 def run(
@@ -92,16 +92,18 @@ def run(
         train_loss = train(
             train_loader, model, optimiser, loss_fn, metric_fn
         )
+        test_loss = 0
         if scheduler is not None:
             scheduler.step()
         for name, loader in loaders.items():
-            curves[name].append(evaluate(loader, model, metric_fn, loss_fn))
+            metrics_value, test_loss = evaluate(loader, model, metric_fn, loss_fn)
+            curves[name].append(metrics_value)
         if print_steps:
             print_str = f"Epoch {epoch}, train loss: {train_loss:.6f}"
             for name, metric in curves.items():
                 print_str += f", {name} metric: {metric[-1]:.3f}"
         # Log metrics to wandb
-        log_dict = {"train_loss": train_loss}
+        log_dict = {"train_loss": train_loss, 'test_loss': test_loss}
         for name, metric_values in curves.items():
             for m_name, value in zip(metric_name, metric_values[-1]):
                 log_dict[f"{name}_{m_name}"] = value
@@ -161,18 +163,20 @@ if __name__ == '__main__':
         out_dim=1,
         num_layers=args.num_layers,
         num_conv_layers=args.num_conv_layers,
-        use_activation=args.use_activation).to(args.device)
+        use_activation=args.use_activation,
+        use_dropout=args.use_dropout,
+        dropout_rate=args.dropout_rate).to(args.device)
 
-    # evaluate_baselines([train_loader, test_loader], ['train', 'test'])
-    run(model, train_loader,
-        {"train": train_loader, "test": test_loader},
-        loss_fn=F.binary_cross_entropy,
-        metric_fn=[recall_score, precision_score, accuracy_score, f1_score, diversity],
-        metric_name=['recall', 'precision', 'accuracy', 'f1', 'diversity_pred'],
-        print_steps=False,
-        use_scheduler=USE_SCHEDULER,
-        weight_decay=args.weight_decay
-        )
-    print('saving_checkpoint')
-    torch.save({'model_state_dict': model.state_dict()}, f'./checkpoints/{args.run_name}_{args.data_name}.pt')
+    evaluate_baselines([train_loader, test_loader], ['train', 'test'], offset=args.offset)
+    # run(model, train_loader,
+    #     {"train": train_loader, "test": test_loader},
+    #     loss_fn=F.binary_cross_entropy,
+    #     metric_fn=[f1_score],
+    #     metric_name=['f1'],
+    #     print_steps=False,
+    #     use_scheduler=USE_SCHEDULER,
+    #     weight_decay=args.weight_decay
+    #     )
+    # print('saving_checkpoint')
+    # torch.save({'model_state_dict': model.state_dict()}, f'./checkpoints/{args.run_name}_{args.data_name}.pt')
     wandb.finish()

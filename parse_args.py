@@ -26,6 +26,8 @@ def get_args():
     parser.add_argument('--use_activation', type=bool, default=True, help='whether to use non linearity in conv layers')
     parser.add_argument('--shuffle', type=bool, default=True, help='whether to shuffle when data loading')
     parser.add_argument('--ams_grad', type=bool, default=True, help='optimizer parameter')
+    parser.add_argument('--use_dropout', type=bool, default=False, help='Whether to use dropout or not')
+    parser.add_argument('--dropout_rate', type=float, default=0.5, help='dropout rate for the dropout layer')
     parser.add_argument('--length_of_past', type=int, default=11,
                         help='How many past states to consider as node features')
     parser.add_argument('--pe_option', type=str, choices=['supra', 'temporal', 'regular', 'none'], default='none',

@@ -113,24 +113,34 @@ class DividedGINConv(MessagePassing):
 
 
 class DeepDividedGINConvNet(torch.nn.Module):
-    def __init__(self, in_dim, hidden_channels, conv_hidden_dim, out_dim, num_layers, num_conv_layers, use_activation,
-                 aggr='mean'):
+    def __init__(self, in_dim, hidden_channels, conv_hidden_dim, out_dim, num_layers, num_conv_layers, use_dropout,
+                 use_activation,
+                 aggr='mean', dropout_rate=0.5):
         super().__init__()
         self.convs = nn.Sequential(
-            DividedGINConv(MLP(in_dim, conv_hidden_dim, conv_hidden_dim, num_layers=2),
-                           MLP(in_dim, conv_hidden_dim, conv_hidden_dim, num_layers=2), aggr=aggr),
-            *[DividedGINConv(MLP(conv_hidden_dim, conv_hidden_dim, conv_hidden_dim, num_layers=2),
-                             MLP(conv_hidden_dim, conv_hidden_dim, conv_hidden_dim, num_layers=2), aggr=aggr) for _ in
-              range(num_conv_layers - 1)]
+            DividedGINConv(MLP(in_dim, conv_hidden_dim, conv_hidden_dim, use_dropout=False, num_layers=2,
+                               dropout_rate=dropout_rate),
+                           MLP(in_dim, conv_hidden_dim, conv_hidden_dim, use_dropout=False, num_layers=2,
+                               dropout_rate=dropout_rate),
+                           aggr=aggr),
+            *[DividedGINConv(
+                MLP(conv_hidden_dim, conv_hidden_dim, conv_hidden_dim, use_dropout=False, num_layers=2,
+                    dropout_rate=dropout_rate),
+                MLP(conv_hidden_dim, conv_hidden_dim, conv_hidden_dim, use_dropout=False, num_layers=2,
+                    dropout_rate=dropout_rate),
+                aggr=aggr) for _ in
+                range(num_conv_layers - 1)]
         )
         for conv in self.convs:
             conv.reset_parameters()
-        self.linear_layer = MLP(conv_hidden_dim, hidden_channels, out_dim, num_layers=num_layers)
+        self.linear_layer = MLP(conv_hidden_dim, hidden_channels, out_dim, use_dropout=use_dropout,
+                                num_layers=num_layers)
         self.activation = nn.ReLU() if use_activation else nn.Identity()
+        self.dropout = nn.Dropout(dropout_rate) if use_dropout else nn.Identity()
 
     def forward(self, x, edge_index):
         for conv in self.convs:
-            x = conv(x, edge_index)
+            x = self.dropout(conv(x, edge_index))
         x = self.linear_layer(x).sigmoid()
         return x
 
