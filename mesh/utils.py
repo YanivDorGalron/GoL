@@ -71,7 +71,8 @@ def create_graphs_from_df(df: pd.DataFrame) -> List[nx.Graph]:
 
 
 # Create traces for nodes and edges
-def draw_cloud(G, points, color=None, fig=None, draw_edges=True, sz=1, width=1000, height=500, zoom_out=2, title=None):
+def draw_cloud(G, points, color=None, fig=None, draw_edges=True, sz=1, width=1000, height=500, zoom_out=2, title=None,
+               autosize=False):
     x = np.zeros(len(points))
     y, z = x.copy(), x.copy()
     color_was_none = color is None
@@ -89,11 +90,21 @@ def draw_cloud(G, points, color=None, fig=None, draw_edges=True, sz=1, width=100
             name += ', 00000 gray'
     except:
         name = ''
+    if fig is None:
+        fig = go.Figure()
 
     node_trace = go.Scatter3d(
         x=x, y=y, z=z,
         mode='markers',
-        marker=dict(size=sz, color=color),
+        marker=dict(size=sz,
+                    color=color,
+                    colorscale='Viridis',
+                    colorbar=dict(
+                        title="Color Legend",
+                        titleside="right",
+                        tickfont=dict(size=10)
+                    )
+                    ),
         name=name
     )
 
@@ -116,17 +127,16 @@ def draw_cloud(G, points, color=None, fig=None, draw_edges=True, sz=1, width=100
             mode='lines',
             line=dict(color='gray', width=1)
         )
-
-    if fig is None:
-        fig = go.Figure()
+        fig.add_trace(edge_trace)
 
     # Add traces to the figure
     fig.add_trace(node_trace)
-    if draw_edges:
-        fig.add_trace(edge_trace)
 
     if title:
         fig.update_layout(
+            showlegend=True,
+            margin=go.layout.Margin(l=0, r=0, t=5, b=5),
+            autosize=autosize,
             title=title,
             titlefont=dict(size=18),  # Adjust the font size of the title
             title_y=0.92  # Adjust the y-position of the title (value between 0 and 1)
@@ -392,12 +402,12 @@ def create_unified_graph(graphs, circular=False, enumaraete=False):
     return unified_graph
 
 
-def expand_points(points, layers, shift=10):
+def expand_points(points, layers, shiftx=0, shifty=0, shiftz=10):
     expanded_points = []
     for i in range(layers):
         for point in points:
             base_x, base_y, base_z = point
-            expanded_points.append((base_x, base_y, base_z + shift * (i + 1)))
+            expanded_points.append((base_x + shiftx * (i + 1), base_y + shifty * (i + 1), base_z + shiftz * (i + 1)))
     return expanded_points
 
 

@@ -32,7 +32,7 @@ def evaluate_baselines(loaders: List[DataLoader], loaders_names: List[str], offs
         for loader, l_name in zip(loaders, loaders_names):
             assert loader.batch_size == 1, 'baseline works only if each batch is a single graph'
             for data in loader:
-                modified_data = data
+                modified_data, value = data, 0
                 for _ in range(1 + offset):
                     value, modified_data = run_baseline_on_data(modified_data)
                 log_dict[f"{l_name}_f1"] = value
